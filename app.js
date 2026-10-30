@@ -10,7 +10,7 @@
   const toastBox = document.getElementById('toast');
   const pillStatus = document.getElementById('pill-status');
 
-  const state = { token: null, me: null, filter: 'all', refreshTimer: null, pillAt: 0 };
+  const state = { token: null, me: null, filter: 'all', refreshTimer: null, pillAt: 0, openThreads: new Set() };
   let renderSeq = 0;
 
   const SUGGESTION_STATUS = { open: 'Offen', accepted: 'Angenommen', done: 'Umgesetzt', rejected: 'Abgelehnt' };
@@ -22,7 +22,9 @@
     abstimmungen: { title: 'Abstimmungen', short: 'Umfragen', icon: 'poll', render: renderPolls },
     einspruch: { title: 'Einspruch', short: 'Einspruch', icon: 'shield', render: renderAppeal },
     regeln: { title: 'Regeln', short: 'Regeln', icon: 'book', render: renderRules },
-    admin: { title: 'Admin', short: 'Admin', icon: 'key', render: renderAdmin, admin: true }
+    admin: { title: 'Admin', short: 'Admin', icon: 'key', render: renderAdmin, admin: true },
+    // not in the nav: opened from the player box top right
+    konto: { title: 'Konto', short: 'Konto', render: renderAccount, hidden: true }
   };
 
   // fixed icon markup (no user data); 24-unit grid, drawn with the current text colour
@@ -37,7 +39,8 @@
     up: '<path d="m6 15 6-6 6 6"/>',
     down: '<path d="m6 9 6 6 6-6"/>',
     out: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
-    map: '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>'
+    map: '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>',
+    chat: '<path d="M4 5h16v11H10l-6 4z"/>'
   };
 
   // ---------------------------------------------------------------- Hilfen
@@ -230,7 +233,7 @@
         const me = await rpc('session_info', { p_token: state.token });
         if (me) state.me = me;
         toast(`GitHub verknüpft${result.github_login ? ' mit @' + result.github_login : ''}. Ab jetzt kannst du dich damit anmelden.`, 'ok');
-        location.hash = '#/start';
+        location.hash = '#/konto';
         await route();
       } else {
         await startSession(await rpc('github_login', {}, githubToken));
@@ -245,17 +248,18 @@
   function githubCard(link) {
     if (CONFIG.githubLogin === false) return null;
     return h('div', { class: 'card' },
-      h('p', { class: 'eyebrow' }, 'Anmeldung'),
-      h('h3', { style: 'margin:6px 0 8px' }, 'Mit GitHub anmelden'),
+      h('p', { class: 'eyebrow' }, 'GitHub'),
+      h('h3', { style: 'margin:6px 0 8px' }, link ? 'GitHub ist verknüpft' : 'GitHub verknüpfen'),
       link
         ? h('div', { class: 'stack' },
           h('p', { class: 'muted small' }, h('span', { class: 'badge ok' }, 'Verknüpft'), ` @${link.github_login || 'GitHub'} – du brauchst keinen Code aus dem Spiel mehr.`),
+          link.linked_at ? h('p', { class: 'faint small' }, `Seit ${formatDate(link.linked_at)}`) : null,
           h('button', {
             class: 'btn small danger',
             onclick: (event) => { if (confirm('GitHub-Verknüpfung lösen?')) act(event.currentTarget, () => rpc('unlink_github', { p_token: state.token }), 'Verknüpfung gelöst.'); }
           }, 'Verknüpfung lösen'))
         : h('div', { class: 'stack' },
-          h('p', { class: 'muted small' }, 'Einmal verknüpfen, danach ohne Code aus dem Spiel anmelden.'),
+          h('p', { class: 'muted small' }, 'Einmal mit deinem Spieler verknüpfen, danach meldest du dich mit einem Klick an – ohne Code aus dem Spiel.'),
           h('button', { class: 'btn', onclick: () => startGithub('link') }, icon('github'), 'GitHub verknüpfen')));
   }
 
@@ -282,17 +286,24 @@
   function renderChrome(active) {
     const pages = allowedPages();
     nav.hidden = pages.length === 0;
-    nav.replaceChildren(...pages.map((page) =>
+    nav.replaceChildren(...pages.filter((page) => !PAGES[page].hidden).map((page) =>
       h('a', { href: '#/' + page, class: page === active ? 'on' : null, 'aria-current': page === active ? 'page' : null },
         icon(PAGES[page].icon), h('span', { class: 'long' }, PAGES[page].title), h('span', { class: 'short', 'aria-hidden': 'true' }, PAGES[page].short))));
     userBox.hidden = !state.me;
     if (state.me) {
-      userBox.replaceChildren(...[
+      const player = [
         head(state.me.uuid, 30),
         h('span', { class: 'name' }, state.me.name),
-        state.me.is_admin ? h('span', { class: 'badge guide' }, 'Admin') : null,
-        h('button', { class: 'btn small', onclick: logout, title: 'Abmelden', 'aria-label': 'Abmelden' }, icon('out'))
-      ].filter(Boolean));
+        state.me.is_admin ? h('span', { class: 'badge guide' }, 'Admin') : null
+      ];
+      userBox.replaceChildren(
+        pages.includes('konto')
+          ? h('a', {
+            class: 'user-link' + (active === 'konto' ? ' on' : ''), href: '#/konto', title: 'Konto und GitHub',
+            'aria-label': `Konto von ${state.me.name}`, 'aria-current': active === 'konto' ? 'page' : null
+          }, player)
+          : h('span', { class: 'user-link' }, player),
+        h('button', { class: 'btn small', onclick: logout, title: 'Abmelden', 'aria-label': 'Abmelden' }, icon('out')));
     }
     updatePill();
   }
@@ -374,7 +385,7 @@
     CONFIG.githubLogin === false ? null : [
       h('div', { class: 'divider' }, 'oder'),
       h('button', { class: 'btn', type: 'button', style: 'width:100%', onclick: () => startGithub('login') }, icon('github'), 'Mit GitHub anmelden'),
-      h('p', { class: 'faint small', style: 'margin-top:8px;text-align:center' }, 'Klappt, sobald du GitHub einmal mit deinem Spieler verknüpft hast.')
+      h('p', { class: 'faint small', style: 'margin-top:8px;text-align:center' }, 'Vorher einmal mit Code anmelden und unter „Konto“ (oben rechts auf deinen Kopf klicken) GitHub verknüpfen.')
     ]);
 
     return h('section', { class: 'login' },
@@ -397,7 +408,8 @@
   async function renderStart() {
     const [s, githubLink] = await Promise.all([
       rpc('get_status', { p_token: state.token }),
-      CONFIG.githubLogin === false ? null : rpc('my_github', { p_token: state.token }).catch(() => null)
+      // false = could not check; then the start page simply leaves the hint out
+      CONFIG.githubLogin === false ? false : rpc('my_github', { p_token: state.token }).catch(() => false)
     ]);
     updatePill(s);
     state.refreshTimer = setTimeout(() => { if (currentPage() === 'start' && !document.querySelector('input:focus, textarea:focus')) refresh(); }, 60000);
@@ -438,7 +450,24 @@
           h('h3', {}, 'Vorschläge'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Ideen für den Server einreichen und bewerten.')),
         h('a', { class: 'card link-card', href: '#/abstimmungen' },
           h('h3', {}, 'Abstimmungen'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Bei Server-Entscheidungen mitbestimmen.')),
-        githubCard(githubLink)));
+        githubLink === null ? githubCard(null) : null));
+  }
+
+  // ---------------------------------------------------------------- Konto
+
+  async function renderAccount() {
+    const githubLink = CONFIG.githubLogin === false ? null : await rpc('my_github', { p_token: state.token });
+    const playerCard = h('div', { class: 'card' },
+      h('p', { class: 'eyebrow' }, 'Minecraft'),
+      h('div', { class: 'profile' },
+        head(state.me.uuid, 48),
+        h('div', {},
+          h('h3', {}, state.me.name, state.me.is_admin ? [' ', h('span', { class: 'badge guide' }, 'Admin')] : null),
+          h('p', { class: 'muted small', style: 'margin-top:4px' }, 'Mit diesem Spieler bist du angemeldet.'))),
+      h('button', { class: 'btn', style: 'margin-top:16px', onclick: logout }, icon('out'), 'Abmelden'));
+    return h('div', {},
+      pageHead('Konto', state.me.name, 'Dein Spieler und die Anmeldung mit GitHub.'),
+      h('div', { class: 'grid' }, playerCard, githubCard(githubLink)));
   }
 
   // ---------------------------------------------------------------- Vorschlaege
@@ -490,7 +519,121 @@
         h('div', { class: 'meta' }, `von ${s.author} · ${formatDate(s.created_at)} · ${s.up} dafür, ${s.down} dagegen`),
         s.body ? h('div', { class: 'body' }, s.body) : null,
         s.admin_note ? h('div', { class: 'admin-note' }, h('strong', {}, 'Admin: '), s.admin_note) : null,
+        threadSection(s),
         state.me.is_admin ? suggestionAdminTools(s) : null));
+  }
+
+  // ---------------------------------------------------------------- Antworten (Forum)
+
+  function answersLabel(count) {
+    return count === 0 ? 'Antworten' : `${count} Antwort${count === 1 ? '' : 'en'}`;
+  }
+
+  // collapsed by default; open threads stay open when the page reloads after a vote or a new answer
+  function threadSection(s) {
+    const open = state.openThreads.has(s.id);
+    const label = h('span', {}, answersLabel(s.comment_count || 0));
+    const thread = h('div', { class: 'thread', hidden: !open });
+    const toggle = h('button', {
+      class: 'btn small', 'aria-expanded': open ? 'true' : 'false',
+      onclick: () => {
+        const nowOpen = !state.openThreads.has(s.id);
+        if (nowOpen) state.openThreads.add(s.id);
+        else state.openThreads.delete(s.id);
+        thread.hidden = !nowOpen;
+        toggle.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+        if (nowOpen) loadThread(s, thread, label);
+      }
+    }, icon('chat'), label);
+    if (open) loadThread(s, thread, label);
+    return h('div', {}, h('div', { class: 'thread-bar' }, toggle), thread);
+  }
+
+  async function loadThread(s, thread, label) {
+    if (!thread.hasChildNodes()) thread.append(h('p', { class: 'faint small' }, 'Antworten werden geladen …'));
+    let comments;
+    try {
+      comments = await rpc('list_comments', { p_token: state.token, p_suggestion_id: s.id });
+    } catch (error) {
+      handleError(error);
+      return;
+    }
+    label.textContent = answersLabel(comments.filter((c) => !c.deleted).length);
+    const children = new Map();
+    for (const c of comments) {
+      const key = c.parent_id == null ? 0 : c.parent_id;
+      if (!children.has(key)) children.set(key, []);
+      children.get(key).push(c);
+    }
+    const reload = () => loadThread(s, thread, label);
+    const roots = (children.get(0) || []).map((c) => commentNode(s, c, 0, children, reload)).filter(Boolean);
+    thread.replaceChildren(
+      replyForm(s.id, null, reload, 'Antwort auf den Vorschlag schreiben …'),
+      roots.length ? h('div', { class: 'comments' }, roots) : h('p', { class: 'faint small', style: 'margin-top:12px' }, 'Noch keine Antworten. Schreib die erste!'));
+  }
+
+  // replies below a comment are indented up to three levels, deeper ones continue on the third level
+  function commentNode(s, c, depth, children, reload) {
+    const kids = (children.get(c.id) || []).map((k) => commentNode(s, k, depth + 1, children, reload)).filter(Boolean);
+    if (c.deleted && kids.length === 0) return null;
+    const slot = h('div', { class: 'reply-slot' });
+    const remove = async (event) => {
+      const button = event.currentTarget;
+      if (!confirm('Antwort löschen?')) return;
+      button.disabled = true;
+      try {
+        await rpc('delete_comment', { p_token: state.token, p_id: c.id });
+        toast('Antwort gelöscht.', 'ok');
+        reload();
+      } catch (error) {
+        handleError(error);
+        button.disabled = false;
+      }
+    };
+    const reply = () => {
+      slot.replaceChildren(replyForm(s.id, c.id, reload, `Antwort an ${c.author} …`, () => slot.replaceChildren()));
+      slot.querySelector('textarea').focus();
+    };
+    return h('div', { class: 'comment' },
+      h('div', { class: 'comment-head' },
+        c.deleted ? null : [head(c.uuid, 20), h('b', {}, c.author), c.author_is_admin ? h('span', { class: 'badge guide' }, 'Admin') : null],
+        h('span', { class: 'faint' }, formatDate(c.created_at))),
+      c.deleted
+        ? h('p', { class: 'comment-body faint' }, 'Diese Antwort wurde gelöscht.')
+        : h('div', { class: 'comment-body' }, c.body),
+      c.deleted ? null : h('div', { class: 'comment-actions' },
+        h('button', { class: 'btn ghost', type: 'button', onclick: reply }, 'Antworten'),
+        c.can_delete ? h('button', { class: 'btn ghost warn', type: 'button', onclick: remove }, 'Löschen') : null),
+      slot,
+      kids.length ? h('div', { class: 'replies' + (depth >= 2 ? ' flat' : '') }, kids) : null);
+  }
+
+  function replyForm(suggestionId, parentId, reload, placeholder, onCancel) {
+    const text = h('textarea', { maxlength: '1000', placeholder, rows: '3' });
+    const send = h('button', { class: 'btn small primary', type: 'submit' }, 'Senden');
+    const form = h('form', {
+      class: 'reply-form',
+      onsubmit: async (event) => {
+        event.preventDefault();
+        send.disabled = true;
+        try {
+          await rpc('create_comment', { p_token: state.token, p_suggestion_id: suggestionId, p_parent_id: parentId, p_body: text.value });
+          toast('Antwort gesendet.', 'ok');
+          reload();
+        } catch (error) {
+          handleError(error);
+          send.disabled = false;
+        }
+      }
+    },
+    text,
+    h('div', { class: 'row' }, send,
+      onCancel ? h('button', { class: 'btn small ghost', type: 'button', onclick: onCancel }, 'Abbrechen') : null,
+      h('span', { class: 'faint small' }, 'Strg + Enter sendet')));
+    text.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) form.requestSubmit();
+    });
+    return form;
   }
 
   function suggestionAdminTools(s) {
