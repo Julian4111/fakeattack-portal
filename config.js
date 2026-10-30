@@ -7,17 +7,15 @@ window.PORTAL_CONFIG = {
   supabaseUrl: 'https://papgusumycsjeafaqqtv.supabase.co',
   supabaseKey: 'sb_publishable_Yjqwmm2TrQ0g3gvzZ6iI_g_WRzx6dm1',
 
+  // gleicher Wortlaut wie im Regel-Bildschirm beim Beitreten (codeofconduct/de_de.txt auf dem Server)
   rules: [
-    'Respektvoller Umgang: keine Beleidigungen, kein Rassismus, keine Hetze.',
-    'Keine Hack-Clients, kein X-Ray, keine Bots und keine Exploits, die den Server crashen oder lahmlegen.',
-    'PvP, Raiden und Sprengen sind erlaubt - außerhalb davon gilt: fair bleiben.',
-    'Keine Lag-Maschinen. Große Farmen bitte vorher absprechen.',
-    'Kein Spam im Chat oder Voice Chat.',
-    'Entscheidungen der Admins und Ergebnisse von Abstimmungen gelten.'
+    { title: 'Kämpfen und Griefen', text: 'Töten und Griefen sind erlaubt, aber nur mit triftigem Grund. Wer ohne triftigen Grund tötet oder Bauwerke zerstört, muss verlorene Items selbst ersetzen und Zerstörtes selbst wieder aufbauen.' },
+    { title: 'Keine Cheats', text: 'Hack-Clients, X-Ray, Bots und Exploits, die den Server abstürzen lassen oder lahmlegen, sind verboten.' },
+    { title: 'Keine Erstattung verlorener Items', text: 'Bei Neustarts, Abschaltungen oder Abstürzen können Items verloren gehen. Der Admin haftet dafür nicht, verlorene Items werden grundsätzlich nicht erstattet.' }
   ],
 
   info: [
-    'Zugang nur über die Whitelist - frag einen Admin, wenn du drauf willst.',
+    'Beim ersten Beitreten zeigt dir Minecraft diese Regeln – nur wer sie akzeptiert, kommt auf den Server.',
     'Sprachchat: Mod „Simple Voice Chat“ installieren, dann funktioniert er automatisch.',
     'Nether und End können zeitweise gesperrt sein.',
     'Backups laufen alle 2 Stunden, angekündigte Neustarts mit Countdown im Spiel.'

@@ -550,7 +550,8 @@
     return h('div', {},
       h('div', { class: 'section-head' }, h('h1', {}, 'Regeln & Infos')),
       h('div', { class: 'grid' },
-        h('div', { class: 'card' }, h('h2', {}, 'Regeln'), h('ol', { class: 'plain' }, (CONFIG.rules || []).map((rule) => h('li', {}, rule)))),
+        h('div', { class: 'card' }, h('h2', {}, 'Regeln'), h('ol', { class: 'plain' }, (CONFIG.rules || []).map((rule) =>
+          typeof rule === 'string' ? h('li', {}, rule) : h('li', {}, h('strong', {}, rule.title), h('br'), rule.text)))),
         h('div', { class: 'card' }, h('h2', {}, 'Gut zu wissen'), h('ul', { class: 'plain' }, (CONFIG.info || []).map((line) => h('li', {}, line))))));
   }
 
