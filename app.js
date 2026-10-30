@@ -3,6 +3,7 @@
 
   const CONFIG = window.PORTAL_CONFIG || {};
   const TOKEN_KEY = 'fa3-portal-token';
+  const OAUTH_INTENT_KEY = 'fa3-oauth-intent';
   const app = document.getElementById('app');
   const nav = document.getElementById('nav');
   const userBox = document.getElementById('user');
@@ -94,12 +95,14 @@
 
   // ---------------------------------------------------------------- Datenbank
 
-  async function rpc(fn, params) {
+  // githubToken: Supabase-Auth access token after a GitHub login; only link_github and github_login need it
+  async function rpc(fn, params, githubToken) {
     if (!CONFIG.supabaseUrl || !CONFIG.supabaseKey) {
       throw new Error('Die Website ist noch nicht mit der Datenbank verbunden (config.js).');
     }
     const headers = { apikey: CONFIG.supabaseKey, 'Content-Type': 'application/json' };
-    if (CONFIG.supabaseKey.startsWith('eyJ')) headers.Authorization = 'Bearer ' + CONFIG.supabaseKey;
+    if (githubToken) headers.Authorization = 'Bearer ' + githubToken;
+    else if (CONFIG.supabaseKey.startsWith('eyJ')) headers.Authorization = 'Bearer ' + CONFIG.supabaseKey;
     let response;
     try {
       response = await fetch(`${CONFIG.supabaseUrl.replace(/\/+$/, '')}/rest/v1/rpc/${fn}`, {
@@ -136,7 +139,10 @@
   }
 
   async function login(code) {
-    const result = await rpc('redeem_code', { p_code: code });
+    await startSession(await rpc('redeem_code', { p_code: code }));
+  }
+
+  async function startSession(result) {
     state.token = result.token;
     saveToken(result.token);
     delete result.token;
@@ -144,6 +150,60 @@
     toast(`Willkommen, ${result.name}!`, 'ok');
     location.hash = result.banned ? '#/einspruch' : '#/start';
     await route();
+  }
+
+  // ---------------------------------------------------------------- GitHub
+
+  // Supabase sends the browser to GitHub and back here with the tokens in the URL fragment
+  function startGithub(intent) {
+    try { sessionStorage.setItem(OAUTH_INTENT_KEY, intent); } catch { /* falls back to login */ }
+    const back = window.location.origin + window.location.pathname;
+    window.location.href = `${CONFIG.supabaseUrl.replace(/\/+$/, '')}/auth/v1/authorize?provider=github&redirect_to=${encodeURIComponent(back)}`;
+  }
+
+  async function finishGithub() {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    if (!fragment.has('access_token') && !fragment.has('error_description')) return false;
+    let intent = 'login';
+    try { intent = sessionStorage.getItem(OAUTH_INTENT_KEY) || 'login'; sessionStorage.removeItem(OAUTH_INTENT_KEY); } catch { /* default */ }
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (fragment.has('error_description')) {
+      toast('GitHub: ' + fragment.get('error_description'), 'error');
+      return false;
+    }
+    const githubToken = fragment.get('access_token');
+    try {
+      if (intent === 'link' && state.token) {
+        const result = await rpc('link_github', { p_token: state.token }, githubToken);
+        const me = await rpc('session_info', { p_token: state.token });
+        if (me) state.me = me;
+        toast(`GitHub verknüpft${result.github_login ? ' mit @' + result.github_login : ''}. Ab jetzt kannst du dich damit anmelden.`, 'ok');
+        location.hash = '#/start';
+        await route();
+      } else {
+        await startSession(await rpc('github_login', {}, githubToken));
+      }
+      return true;
+    } catch (error) {
+      toast(error.message, 'error');
+      return false;
+    }
+  }
+
+  function githubCard(link) {
+    if (CONFIG.githubLogin === false) return null;
+    return h('div', { class: 'card' },
+      h('h3', {}, 'Anmelden mit GitHub'),
+      link
+        ? h('div', { class: 'stack' },
+          h('p', { class: 'muted', style: 'margin:0' }, `Verknüpft mit @${link.github_login || 'GitHub'} – du kannst dich ohne Code aus dem Spiel anmelden.`),
+          h('button', {
+            class: 'btn small danger',
+            onclick: (event) => { if (confirm('GitHub-Verknüpfung lösen?')) act(event.currentTarget, () => rpc('unlink_github', { p_token: state.token }), 'Verknüpfung gelöst.'); }
+          }, 'Verknüpfung lösen'))
+        : h('div', { class: 'stack' },
+          h('p', { class: 'muted', style: 'margin:0' }, 'Verknüpfe einmal dein GitHub-Konto, dann brauchst du beim nächsten Mal keinen Code aus dem Spiel.'),
+          h('button', { class: 'btn', onclick: () => startGithub('link') }, 'GitHub verknüpfen')));
   }
 
   async function logout() {
@@ -240,7 +300,10 @@
         try { await login(input.value); } catch (error) { toast(error.message, 'error'); } finally { button.disabled = false; }
       }
     },
-    h('label', {}, 'Login-Code'), input, button);
+    h('label', {}, 'Login-Code'), input, button,
+    CONFIG.githubLogin === false ? null : h('div', { class: 'stack', style: 'margin-top:14px;padding-top:14px;border-top:1px solid var(--border)' },
+      h('button', { class: 'btn', type: 'button', onclick: () => startGithub('login') }, 'Mit GitHub anmelden'),
+      h('p', { class: 'muted small', style: 'margin:0' }, 'Klappt, sobald du dein GitHub-Konto einmal mit deinem Spieler verknüpft hast.')));
 
     const status = h('p', { class: 'muted small' }, 'Serverstatus wird geladen …');
     rpc('get_status', { p_token: null }).then((s) => {
@@ -264,7 +327,10 @@
   // ---------------------------------------------------------------- Start
 
   async function renderStart() {
-    const s = await rpc('get_status', { p_token: state.token });
+    const [s, githubLink] = await Promise.all([
+      rpc('get_status', { p_token: state.token }),
+      CONFIG.githubLogin === false ? null : rpc('my_github', { p_token: state.token }).catch(() => null)
+    ]);
     state.refreshTimer = setTimeout(() => { if (currentPage() === 'start' && !document.querySelector('input:focus, textarea:focus')) refresh(); }, 60000);
 
     const players = (s.players || []).map((p) => h('span', { class: 'player' }, head(p.uuid, 20), p.name));
@@ -288,7 +354,10 @@
     const mapCard = h('div', { class: 'card map-card' },
       h('div', {}, h('h3', {}, 'Weltkarte'), h('p', { class: 'muted' }, '3D-Karte der Welt mit allen Spielern live. Läuft direkt auf dem Server.')),
       mapUrl
-        ? h('a', { class: 'btn primary', href: mapUrl, target: '_blank', rel: 'noopener' }, 'Karte öffnen ↗')
+        ? h('div', { class: 'stack' },
+          h('a', { class: 'btn primary', href: mapUrl, target: '_blank', rel: 'noopener' }, 'Karte öffnen ↗'),
+          h('p', { class: 'muted small', style: 'margin:0' }, 'Im selben Heimnetz wie der Server? Dann ',
+            h('a', { href: `http://localhost:${s.map_port}/`, target: '_blank', rel: 'noopener' }, `localhost:${s.map_port}`), ' nutzen.'))
         : h('p', { class: 'muted small' }, 'Die Karte ist nur erreichbar, wenn der Server online ist.'));
 
     return h('div', {},
@@ -298,7 +367,8 @@
         h('a', { class: 'card', href: '#/vorschlaege', style: 'text-decoration:none;color:inherit' },
           h('h3', {}, 'Vorschläge →'), h('p', { class: 'muted', style: 'margin:0' }, 'Ideen für den Server einreichen und abstimmen.')),
         h('a', { class: 'card', href: '#/abstimmungen', style: 'text-decoration:none;color:inherit' },
-          h('h3', {}, 'Abstimmungen →'), h('p', { class: 'muted', style: 'margin:0' }, 'Bei Server-Entscheidungen mitbestimmen.'))));
+          h('h3', {}, 'Abstimmungen →'), h('p', { class: 'muted', style: 'margin:0' }, 'Bei Server-Entscheidungen mitbestimmen.')),
+        githubCard(githubLink)));
   }
 
   // ---------------------------------------------------------------- Vorschlaege
@@ -535,6 +605,7 @@
     }
 
     state.token = loadToken();
+    if (await finishGithub()) return;
     if (code) {
       try {
         await login(code);
