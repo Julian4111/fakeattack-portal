@@ -352,7 +352,7 @@
 
     const mapUrl = s.address && s.map_port ? `http://${s.address}:${s.map_port}/` : null;
     const mapCard = h('div', { class: 'card map-card' },
-      h('div', {}, h('h3', {}, 'Weltkarte'), h('p', { class: 'muted' }, '3D-Karte der Welt mit allen Spielern live. Läuft direkt auf dem Server.')),
+      h('div', {}, h('h3', {}, 'Weltkarte'), h('p', { class: 'muted' }, '3D-Karte der Welt – ohne Spielerstandorte. Läuft direkt auf dem Server.')),
       mapUrl
         ? h('div', { class: 'stack' },
           h('a', { class: 'btn primary', href: mapUrl, target: '_blank', rel: 'noopener' }, 'Karte öffnen ↗'),
