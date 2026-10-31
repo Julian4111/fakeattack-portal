@@ -595,7 +595,7 @@
     return h('div', {},
       pageHead('Übersicht', `Hallo, ${state.me.name}`),
       h('div', { class: 'grid' }, statusCard, addressCard, mapCard),
-      board ? leaderboard(board) : null,
+      board && board.players ? leaderboard(board) : null,
       h('div', { class: 'grid', style: 'margin-top:16px' },
         h('a', { class: 'card link-card', href: '#/boerse' },
           h('h3', {}, 'Börse'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Items kaufen, verkaufen und bestellen.')),
@@ -621,45 +621,71 @@
     return `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: hours < 10 ? 1 : 0 }).format(hours)} Std.`;
   }
 
-  // one colour per tile, always together with its title; the order of the colours is fixed (see style.css)
   // value and unit apart, so the number can be big and the unit small
   const splitTime = (minutes) => { const text = playTime(minutes); const cut = text.lastIndexOf(' '); return [text.slice(0, cut), text.slice(cut + 1)]; };
-  const BOARD_TILES = [
-    { key: 'deaths', title: 'Meiste Tode', tone: 'redstone', format: (n) => [number(n), n === 1 ? 'Tod' : 'Tode'] },
-    { key: 'kills', title: 'Meiste Monsterkills', tone: 'diamond', format: (n) => [number(n), 'Monster'] },
-    { key: 'playtime', title: 'Meiste Spielzeit', tone: 'gold', format: splitTime }
+  const counted = (one, many) => (n) => [number(n), n === 1 ? one : many];
+
+  // The eight categories, each with its own colour (always shown with its title). Colours in this fixed order are
+  // checked against the dark background and for colour blindness; keep the order when adding or moving one.
+  const STAT_CATEGORIES = [
+    { key: 'minutes', label: 'Spielzeit', top: 'Meiste Spielzeit', color: '#3987e5', format: splitTime },
+    { key: 'deaths', label: 'Tode', top: 'Meiste Tode', color: '#d95926', format: counted('Tod', 'Tode') },
+    { key: 'monster_kills', label: 'Monsterkills', top: 'Meiste Monsterkills', color: '#199e70', format: counted('Monster', 'Monster') },
+    { key: 'mob_kills', label: 'Mobkills (alle)', top: 'Meiste Mobkills', color: '#c98500', format: counted('Mob', 'Mobs') },
+    { key: 'player_kills', label: 'Spielerkills', top: 'Meiste Spielerkills', color: '#d55181', format: counted('Spieler', 'Spieler') },
+    { key: 'mined', label: 'Blöcke abgebaut', top: 'Meiste Blöcke abgebaut', color: '#008300', format: counted('Block', 'Blöcke') },
+    { key: 'placed', label: 'Blöcke platziert', top: 'Meiste Blöcke platziert', color: '#9085e9', format: counted('Block', 'Blöcke') },
+    { key: 'tnt', label: 'TNT gesprengt', top: 'Meistes TNT gesprengt', color: '#e66767', format: counted('TNT', 'TNT') }
   ];
 
   const boardValue = ([value, unit], extra) => h('b', { class: 'board-value' + (extra || '') }, value, h('small', {}, ` ${unit}`));
+  const toned = (cat, cls, ...children) => h('div', { class: cls, style: `--tone:${cat.color}` }, ...children);
 
   function leaderboard(board) {
-    const tiles = BOARD_TILES.map((tile) => {
-      const [first, ...rest] = board[tile.key] || [];
-      return h('div', { class: `card thick board-tile ${tile.tone}` },
-        h('p', { class: 'eyebrow board-title' }, h('i'), tile.title),
+    const top = board.top || {};
+    const totals = board.totals || {};
+    const players = board.players || 0;
+    // the whole server first: one figure per category
+    const server = h('div', { class: 'card thick board-totals' },
+      h('div', { class: 'row' }, h('p', { class: 'eyebrow' }, 'Server gesamt'), h('span', { class: 'spacer' }),
+        h('span', { class: 'faint small' }, `${number(players)} Spieler${board.updated_at ? ` · Stand ${ago(board.updated_at)}` : ''}`)),
+      h('div', { class: 'board-figures' }, STAT_CATEGORIES.map((cat) => toned(cat, 'board-figure',
+        h('span', { class: 'board-title' }, h('i'), cat.label), boardValue(cat.format(totals[cat.key] || 0))))));
+    const tiles = STAT_CATEGORIES.map((cat) => {
+      const [first, ...rest] = top[cat.key] || [];
+      return toned(cat, 'card thick board-tile',
+        h('p', { class: 'eyebrow board-title' }, h('i'), cat.top),
         first
           ? h('div', { class: 'board-first' }, head(first.uuid, 40),
-            h('div', {}, boardValue(tile.format(first.value)), h('span', { class: 'board-name' }, first.name)))
-          : h('p', { class: 'faint small' }, 'Noch keine Werte.'),
-        rest.length ? h('ol', { class: 'board-rest', start: '2' }, rest.map((entry) => {
-          const [value, unit] = tile.format(entry.value);
+            h('div', {}, boardValue(cat.format(first.value)), h('span', { class: 'board-name' }, first.name)))
+          : h('p', { class: 'faint small' }, cat.key === 'tnt' ? 'Wird ab jetzt gezählt.' : 'Noch keine Werte.'),
+        rest.length ? h('ol', { class: 'board-rest' }, rest.map((entry) => {
+          const [value, unit] = cat.format(entry.value);
           return h('li', {}, head(entry.uuid, 18), h('span', { class: 'board-name' }, entry.name), h('span', { class: 'spacer' }),
-            h('span', { class: 'board-small', title: `${value} ${unit}` }, tile.key === 'playtime' ? `${value} ${unit}` : value));
+            h('span', { class: 'board-small', title: `${value} ${unit}` }, cat.key === 'minutes' ? `${value} ${unit}` : value));
         })) : null);
     });
-    const players = board.players || 0;
-    const total = h('div', { class: 'card thick board-tile amethyst' },
-      h('p', { class: 'eyebrow board-title' }, h('i'), 'Spielzeit insgesamt'),
-      boardValue(splitTime(board.total_minutes || 0), ' board-hero'),
-      h('p', { class: 'muted small' }, `alle ${number(players)} Spieler zusammen`),
-      h('ul', { class: 'board-facts' },
-        players ? h('li', {}, h('span', {}, 'Im Schnitt'), h('b', {}, playTime(Math.round((board.total_minutes || 0) / players)))) : null,
-        h('li', {}, h('span', {}, 'Tode zusammen'), h('b', {}, number(board.total_deaths || 0))),
-        h('li', {}, h('span', {}, 'Monster zusammen'), h('b', {}, number(board.total_kills || 0)))));
     return h('div', { class: 'board' },
-      h('div', { class: 'row section-label' }, h('p', { class: 'eyebrow' }, 'Bestenliste'), h('span', { class: 'spacer' }),
-        board.updated_at ? h('span', { class: 'faint small' }, `Stand ${ago(board.updated_at)}`) : null),
-      h('div', { class: 'grid board-grid' }, ...tiles, total));
+      h('p', { class: 'eyebrow section-label' }, 'Bestenliste'),
+      server,
+      h('div', { class: 'grid board-grid' }, tiles));
+  }
+
+  // the profile: your own values and your place in every category
+  function myStatsCard(mine) {
+    if (!mine) {
+      return h('div', { class: 'card thick' }, h('p', { class: 'eyebrow' }, 'Deine Statistiken'),
+        h('p', { class: 'muted small', style: 'margin-top:10px' }, 'Noch keine Werte. Sie erscheinen, nachdem du auf dem Server warst (spätestens nach 10 Minuten).'));
+    }
+    const data = mine.data || {};
+    const ranks = mine.ranks || {};
+    return h('div', { class: 'card thick my-stats' },
+      h('div', { class: 'row' }, h('p', { class: 'eyebrow' }, 'Deine Statistiken'), h('span', { class: 'spacer' }),
+        mine.updated_at ? h('span', { class: 'faint small' }, `Stand ${ago(mine.updated_at)}`) : null),
+      h('div', { class: 'board-figures' }, STAT_CATEGORIES.map((cat) => toned(cat, 'board-figure',
+        h('span', { class: 'board-title' }, h('i'), cat.label),
+        boardValue(cat.format(data[cat.key] || 0)),
+        h('span', { class: 'faint small' }, data[cat.key] ? `Platz ${ranks[cat.key]} von ${mine.players}` : '–')))));
   }
 
   // ---------------------------------------------------------------- Inventar
@@ -801,7 +827,10 @@
   // ---------------------------------------------------------------- Konto
 
   async function renderAccount() {
-    const githubLink = CONFIG.githubLogin === false ? null : await rpc('my_github', { p_token: state.token });
+    const [githubLink, mine] = await Promise.all([
+      CONFIG.githubLogin === false ? null : rpc('my_github', { p_token: state.token }),
+      rpc('my_stats', { p_token: state.token }).catch(() => undefined)
+    ]);
     const playerCard = h('div', { class: 'card' },
       h('p', { class: 'eyebrow' }, 'Minecraft'),
       h('div', { class: 'profile' },
@@ -816,8 +845,10 @@
       h('p', { class: 'muted small' }, 'Alle Funktionen der Website Schritt für Schritt. In der Börse übst du mit Übungs-Spielern.'),
       h('button', { class: 'btn', style: 'margin-top:12px', onclick: startTour }, icon('guide'), 'Rundgang starten'));
     return h('div', {},
-      pageHead('Konto', state.me.name, 'Dein Spieler und die Anmeldung mit GitHub.'),
-      h('div', { class: 'grid' }, playerCard, githubCard(githubLink), tourCard));
+      pageHead('Konto', state.me.name, 'Dein Spieler, deine Statistiken und die Anmeldung mit GitHub.'),
+      h('div', { class: 'grid' }, playerCard, githubCard(githubLink), tourCard),
+      // undefined: the statistics could not be loaded at all, so the card is left out
+      mine === undefined ? null : h('div', { style: 'margin-top:16px' }, myStatsCard(mine)));
   }
 
   // ---------------------------------------------------------------- Boerse
