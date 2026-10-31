@@ -391,7 +391,7 @@
   // ---------------------------------------------------------------- Von selbst aktualisieren
 
   // how often each page loads its data again (ms); pages not listed stay as they are
-  const AUTO_REFRESH = { start: 30000, boerse: 20000, inventar: 30000, vorschlaege: 60000, abstimmungen: 30000, einspruch: 60000, admin: 20000 };
+  const AUTO_REFRESH = { start: 30000, boerse: 20000, inventar: 30000, vorschlaege: 60000, abstimmungen: 30000, einspruch: 60000, admin: 20000, konto: 60000 };
 
   // nothing is re-rendered under the player's hands: no focused or edited field, nothing opened or selected
   function idle() {
