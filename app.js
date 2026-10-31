@@ -10,7 +10,10 @@
   const toastBox = document.getElementById('toast');
   const pillStatus = document.getElementById('pill-status');
 
-  const state = { token: null, me: null, filter: 'all', refreshTimer: null, pillAt: 0, openThreads: new Set() };
+  const state = {
+    token: null, me: null, filter: 'all', refreshTimer: null, pillAt: 0, openThreads: new Set(),
+    market: { view: 'sell', q: '', cat: '', sort: 'new', type: 'all', formOpen: false }, marketPending: 0
+  };
   let renderSeq = 0;
 
   const SUGGESTION_STATUS = { open: 'Offen', accepted: 'Angenommen', done: 'Umgesetzt', rejected: 'Abgelehnt' };
@@ -18,6 +21,7 @@
 
   const PAGES = {
     start: { title: 'Start', short: 'Start', icon: 'home', render: renderStart },
+    boerse: { title: 'Börse', short: 'Börse', icon: 'gem', render: renderMarket },
     vorschlaege: { title: 'Vorschläge', short: 'Ideen', icon: 'idea', render: renderSuggestions },
     abstimmungen: { title: 'Abstimmungen', short: 'Umfragen', icon: 'poll', render: renderPolls },
     einspruch: { title: 'Einspruch', short: 'Einspruch', icon: 'shield', render: renderAppeal },
@@ -40,7 +44,11 @@
     down: '<path d="m6 9 6 6 6-6"/>',
     out: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
     map: '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>',
-    chat: '<path d="M4 5h16v11H10l-6 4z"/>'
+    chat: '<path d="M4 5h16v11H10l-6 4z"/>',
+    gem: '<path d="M7 4h10l4 5-9 11L3 9z"/><path d="M3 9h18M12 20 8.5 9 11 4M12 20l3.5-11L13 4"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    check: '<path d="m5 12 5 5 9-10"/>'
   };
 
   // ---------------------------------------------------------------- Hilfen
@@ -305,7 +313,25 @@
           : h('span', { class: 'user-link' }, player),
         h('button', { class: 'btn small', onclick: logout, title: 'Abmelden', 'aria-label': 'Abmelden' }, icon('out')));
     }
+    setMarketPending(state.marketPending);
     updatePill();
+  }
+
+  // gold counter on the Boerse link: deals waiting for this player's answer or handover
+  function setMarketPending(count) {
+    state.marketPending = count || 0;
+    const link = nav.querySelector('a[href="#/boerse"]');
+    if (!link) return;
+    let badge = link.querySelector('.nav-count');
+    if (!state.marketPending) {
+      if (badge) badge.remove();
+      return;
+    }
+    if (!badge) {
+      badge = h('span', { class: 'nav-count', title: 'Deals, bei denen du dran bist' });
+      link.append(badge);
+    }
+    badge.textContent = state.marketPending > 9 ? '9+' : String(state.marketPending);
   }
 
   // status capsule top left: online/offline and player count, refreshed at most every 30 s
@@ -316,6 +342,7 @@
       try { status = await rpc('get_status', { p_token: state.token }); } catch { return; }
     }
     state.pillAt = Date.now();
+    if (status.market_pending != null) setMarketPending(status.market_pending);
     const count = status.player_count || 0;
     pillStatus.replaceChildren(
       h('i', { class: 'dot ' + (status.online ? 'on' : 'off') }),
@@ -446,6 +473,8 @@
       pageHead('Übersicht', `Hallo, ${state.me.name}`),
       h('div', { class: 'grid' }, statusCard, addressCard, mapCard),
       h('div', { class: 'grid', style: 'margin-top:16px' },
+        h('a', { class: 'card link-card', href: '#/boerse' },
+          h('h3', {}, 'Börse'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Items kaufen, verkaufen und bestellen.')),
         h('a', { class: 'card link-card', href: '#/vorschlaege' },
           h('h3', {}, 'Vorschläge'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Ideen für den Server einreichen und bewerten.')),
         h('a', { class: 'card link-card', href: '#/abstimmungen' },
@@ -468,6 +497,387 @@
     return h('div', {},
       pageHead('Konto', state.me.name, 'Dein Spieler und die Anmeldung mit GitHub.'),
       h('div', { class: 'grid' }, playerCard, githubCard(githubLink)));
+  }
+
+  // ---------------------------------------------------------------- Boerse
+
+  // Three colours with a fixed meaning here: Diamant = price, Gold = negotiation (VB), Smaragd = deal
+  const URGENCY = ['Kein Stress', 'Diese Woche', 'Heute oder morgen', 'Dringend'];
+  const DEAL_STATUS = { open: 'Verhandlung', agreed: 'Deal', done: 'Erledigt', declined: 'Beendet', cancelled: 'Abgebrochen' };
+  const LISTING_STATUS = { open: 'Offen', reserved: 'Reserviert', done: 'Erledigt', closed: 'Zurückgezogen' };
+  const MARKET_CATEGORIES = window.MARKET_CATEGORIES || [['sonstiges', 'Sonstiges']];
+  const CATEGORY_NAMES = Object.fromEntries(MARKET_CATEGORIES);
+  const ITEM_CATEGORY = new Map();
+  for (const [cat, names] of Object.entries(window.MARKET_ITEMS || {})) {
+    for (const name of names) ITEM_CATEGORY.set(name.toLowerCase(), { cat, name });
+  }
+
+  function ago(iso) {
+    const minutes = Math.round((Date.now() - new Date(iso)) / 60000);
+    if (minutes < 1) return 'gerade eben';
+    if (minutes < 60) return `vor ${minutes} Min.`;
+    if (minutes < 24 * 60) return `vor ${Math.round(minutes / 60)} Std.`;
+    const days = Math.round(minutes / (24 * 60));
+    return days < 7 ? `vor ${days} Tag${days === 1 ? '' : 'en'}` : formatDate(iso);
+  }
+
+  function amount(quantity, title) { return quantity > 1 ? `${quantity}× ${title}` : title; }
+  function diamonds(n) { return `${n} Diamant${n === 1 ? '' : 'en'}`; }
+  function priceText(n) { return n == null ? 'VB' : n === 0 ? 'gratis' : diamonds(n); }
+
+  // price in diamonds; without a number it is only "VB"
+  function priceTag(price) {
+    if (price == null) return h('span', { class: 'price vb' }, h('b', {}, 'VB'));
+    if (price === 0) return h('span', { class: 'price' }, h('b', {}, 'Gratis'));
+    return h('span', { class: 'price', title: diamonds(price) }, h('b', {}, String(price)), icon('gem'));
+  }
+
+  function priceTypeBadge(type) {
+    return h('span', { class: 'badge ' + (type === 'fixed' ? 'set' : 'caution') }, type === 'fixed' ? 'Festpreis' : 'VB');
+  }
+
+  function priceInput(attrs) {
+    const input = h('input', { type: 'number', min: '0', max: '100000', step: '1', inputmode: 'numeric', ...attrs });
+    return { input, box: h('div', { class: 'offer-input' }, input, icon('gem')) };
+  }
+
+  async function renderMarket() {
+    const m = state.market;
+    const [list, mine] = await Promise.all([
+      m.view === 'deals' ? [] : rpc('market_list', { p_token: state.token, p_kind: m.view }),
+      rpc('market_mine', { p_token: state.token })
+    ]);
+    setMarketPending(mine.pending);
+
+    const tabs = [['sell', 'Angebote'], ['buy', 'Gesuche'], ['deals', 'Meine Deals']];
+    const tabBar = h('div', { class: 'filters', role: 'tablist' }, tabs.map(([key, label]) =>
+      h('button', {
+        class: m.view === key ? 'on' : null, role: 'tab', 'aria-selected': m.view === key ? 'true' : 'false',
+        onclick: () => { m.view = key; m.formOpen = false; refresh(); }
+      }, label, key === 'deals' && mine.pending ? h('span', { class: 'nav-count' }, mine.pending) : null)));
+
+    const lead = 'Kaufen, verkaufen und bestellen. Bezahlt wird in Diamanten, übergeben im Spiel.';
+    if (m.view === 'deals') {
+      return h('div', {}, pageHead('Item-Börse', 'Börse', lead), h('div', { class: 'market-tabs' }, tabBar), marketDeals(mine));
+    }
+    const form = listingForm(m.view);
+    const toggle = h('button', {
+      class: 'btn diamond', 'aria-expanded': m.formOpen ? 'true' : 'false',
+      onclick: () => {
+        m.formOpen = !m.formOpen;
+        form.el.hidden = !m.formOpen;
+        toggle.setAttribute('aria-expanded', m.formOpen ? 'true' : 'false');
+        if (m.formOpen) form.focus();
+      }
+    }, icon('plus'), m.view === 'sell' ? 'Etwas verkaufen' : 'Etwas suchen');
+    return h('div', {},
+      pageHead('Item-Börse', 'Börse', lead, toggle),
+      h('div', { class: 'market-tabs' }, tabBar),
+      form.el,
+      marketBoard(list, m.view));
+  }
+
+  function listingForm(kind) {
+    const m = state.market;
+    const sell = kind === 'sell';
+    let priceType = sell ? 'fixed' : 'vb';
+
+    const title = h('input', { id: 'mk-title', maxlength: '60', list: 'market-items', autocomplete: 'off', required: true, placeholder: sell ? 'z. B. Elytra' : 'z. B. Obsidian' });
+    const category = h('select', { id: 'mk-cat', required: true },
+      h('option', { value: '' }, 'Bitte wählen'), MARKET_CATEGORIES.map(([id, label]) => h('option', { value: id }, label)));
+    // known items fill in their category
+    title.addEventListener('change', () => {
+      const hit = ITEM_CATEGORY.get(title.value.trim().toLowerCase());
+      if (hit) category.value = hit.cat;
+    });
+    const quantity = h('input', { id: 'mk-qty', type: 'number', min: '1', max: '100000', step: '1', value: '1', required: true, inputmode: 'numeric' });
+    const price = priceInput({ id: 'mk-price' });
+    const priceLabel = h('label', { for: 'mk-price' });
+    const hint = h('p', { class: 'faint small' });
+    const description = h('textarea', { id: 'mk-desc', maxlength: '500', placeholder: sell ? 'Verzauberungen, Zustand, wo ihr euch trefft …' : 'Was genau brauchst du? Bis wann?' });
+    const urgency = sell ? null : h('select', { id: 'mk-urgency' }, URGENCY.map((label, i) => h('option', { value: String(i) }, label)));
+
+    const typeButtons = sell ? [['fixed', 'Festpreis'], ['vb', 'VB']].map(([key, label]) =>
+      h('button', { type: 'button', 'data-type': key, onclick: () => { priceType = key; syncType(); } }, label)) : [];
+    const syncType = () => {
+      for (const b of typeButtons) b.className = b.dataset.type === priceType ? 'on' : '';
+      const fixed = priceType === 'fixed';
+      price.input.required = fixed;
+      price.input.placeholder = fixed ? 'Preis' : 'optional';
+      priceLabel.textContent = !sell ? 'Was zahlst du ungefähr?' : fixed ? 'Festpreis in Diamanten' : 'Preisvorstellung';
+      hint.textContent = !sell
+        ? 'Gesuche sind immer VB: Wer liefern kann, schickt dir ein Angebot und ihr verhandelt.'
+        : fixed ? 'Wer kauft, bekommt den Deal sofort. Danach trefft ihr euch im Spiel.'
+          : 'Käufer schicken dir Preisvorschläge, du nimmst an, lehnst ab oder machst ein Gegenangebot.';
+    };
+    syncType();
+
+    const submit = h('button', { class: 'btn diamond', type: 'submit' }, sell ? 'Angebot einstellen' : 'Gesuch aufgeben');
+    const datalist = h('datalist', { id: 'market-items' }, [...ITEM_CATEGORY.values()].map((item) => h('option', { value: item.name })));
+    const el = h('form', {
+      class: 'card thick market-form', hidden: !m.formOpen,
+      onsubmit: (event) => {
+        event.preventDefault();
+        act(submit, async () => {
+          await rpc('market_create', {
+            p_token: state.token, p_kind: kind, p_title: title.value, p_category: category.value,
+            p_quantity: Number(quantity.value), p_price: price.input.value === '' ? null : Number(price.input.value),
+            p_price_type: priceType, p_urgency: urgency ? Number(urgency.value) : 0, p_description: description.value
+          });
+          m.formOpen = false;
+        }, sell ? 'Dein Angebot ist online.' : 'Dein Gesuch ist online.');
+      }
+    },
+    h('h3', {}, sell ? 'Neues Angebot' : 'Neues Gesuch'),
+    h('div', { class: 'form-grid' },
+      h('div', { class: 'span-2' }, h('label', { for: 'mk-title' }, 'Item'), title, datalist),
+      h('div', {}, h('label', { for: 'mk-cat' }, 'Kategorie'), category),
+      h('div', {}, h('label', { for: 'mk-qty' }, 'Menge'), quantity),
+      sell
+        ? h('div', {}, h('label', {}, 'Preisart'), h('div', { class: 'filters', role: 'group', 'aria-label': 'Preisart' }, typeButtons))
+        : h('div', {}, h('label', { for: 'mk-urgency' }, 'Wie dringend?'), urgency),
+      h('div', {}, priceLabel, price.box),
+      h('div', { class: 'span-2' }, h('label', { for: 'mk-desc' }, 'Beschreibung (optional)'), description)),
+    hint,
+    h('div', { class: 'row' }, submit));
+    return { el, focus: () => title.focus() };
+  }
+
+  function marketBoard(list, kind) {
+    const m = state.market;
+    if (kind === 'sell' && m.sort === 'urgent') m.sort = 'new';
+    const grid = h('div', { class: 'grid market-grid' });
+    const count = h('p', { class: 'faint small market-count' });
+    const draw = () => {
+      const q = m.q.trim().toLowerCase();
+      let shown = list.filter((l) =>
+        (!q || [l.title, l.description, l.author].some((text) => (text || '').toLowerCase().includes(q))) &&
+        (!m.cat || l.category === m.cat) &&
+        (kind === 'buy' || m.type === 'all' || l.price_type === m.type));
+      if (m.sort === 'cheap') shown = [...shown].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+      if (m.sort === 'expensive') shown = [...shown].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
+      if (m.sort === 'urgent') shown = [...shown].sort((a, b) => b.urgency - a.urgency);
+      count.textContent = shown.length === list.length ? `${list.length} ${kind === 'sell' ? 'Angebot' : 'Gesuch'}${list.length === 1 ? '' : 'e'}` : `${shown.length} von ${list.length}`;
+      grid.replaceChildren(...(shown.length ? shown.map(listingCard) : [h('div', { class: 'empty' },
+        list.length ? 'Nichts gefunden. Probier andere Filter.'
+          : kind === 'sell' ? 'Noch keine Angebote. Stell das erste ein!' : 'Noch keine Gesuche. Was brauchst du?')]));
+    };
+
+    const search = h('input', {
+      class: 'search', type: 'search', value: m.q, 'aria-label': 'Suchen',
+      placeholder: kind === 'sell' ? 'Angebote durchsuchen …' : 'Gesuche durchsuchen …',
+      oninput: () => { m.q = search.value; draw(); }
+    });
+    const select = (key, label, options) => {
+      const el = h('select', { 'aria-label': label, onchange: () => { m[key] = el.value; draw(); } },
+        options.map(([value, text]) => h('option', { value, selected: m[key] === value }, text)));
+      return el;
+    };
+    const sorts = [['new', 'Neueste zuerst'], ['cheap', 'Preis aufsteigend'], ['expensive', 'Preis absteigend']];
+    if (kind === 'buy') sorts.push(['urgent', 'Dringendste zuerst']);
+    const tools = h('div', { class: 'market-tools' + (kind === 'buy' ? ' three' : '') },
+      search,
+      select('cat', 'Kategorie', [['', 'Alle Kategorien'], ...MARKET_CATEGORIES]),
+      select('sort', 'Sortierung', sorts),
+      kind === 'sell' ? select('type', 'Preisart', [['all', 'Festpreis und VB'], ['fixed', 'Nur Festpreis'], ['vb', 'Nur VB']]) : null);
+    draw();
+    return h('div', {}, tools, count, grid);
+  }
+
+  function listingCard(l) {
+    const sell = l.kind === 'sell';
+    const reserved = l.status === 'reserved';
+    return h('article', { class: 'card thick listing' + (reserved ? ' reserved' : '') },
+      h('div', { class: 'listing-top' },
+        h('span', { class: 'eyebrow' }, CATEGORY_NAMES[l.category] || 'Sonstiges'),
+        !sell && l.urgency > 0 ? h('span', { class: 'badge' + (l.urgency === 3 ? ' urgent' : '') }, URGENCY[l.urgency]) : null,
+        h('span', { class: 'spacer' }),
+        h('span', { class: 'faint small' }, ago(l.created_at))),
+      h('h3', {}, sell ? amount(l.quantity, l.title) : `Suche ${amount(l.quantity, l.title)}`),
+      h('div', { class: 'price-row' },
+        !sell && l.price != null ? h('span', { class: 'muted small' }, 'Bietet') : null,
+        priceTag(l.price),
+        l.price == null ? h('span', { class: 'muted small' }, 'Preis verhandelbar') : priceTypeBadge(l.price_type)),
+      l.description ? h('p', { class: 'listing-text' }, l.description) : null,
+      h('div', { class: 'listing-foot' },
+        h('span', { class: 'who' }, head(l.uuid, 20), l.mine ? 'Du' : l.author),
+        h('span', { class: 'spacer' }),
+        reserved ? h('span', { class: 'badge ok' }, 'Reserviert')
+          : l.deal_count ? h('span', { class: 'faint small' }, `${l.deal_count} verhandel${l.deal_count === 1 ? 't' : 'n'}`) : null),
+      listingActions(l));
+  }
+
+  function listingActions(l) {
+    const toDeals = () => { state.market.view = 'deals'; refresh(); window.scrollTo(0, 0); };
+    const remove = l.can_remove ? h('button', {
+      class: 'btn small ghost warn',
+      onclick: (event) => {
+        if (!confirm(l.mine ? 'Eintrag zurückziehen? Laufende Verhandlungen werden beendet.' : 'Eintrag als Admin entfernen?')) return;
+        act(event.currentTarget, () => rpc('market_close', { p_token: state.token, p_id: l.id }), l.mine ? 'Zurückgezogen.' : 'Entfernt.');
+      }
+    }, l.mine ? 'Zurückziehen' : 'Entfernen') : null;
+    const bar = (...children) => h('div', { class: 'listing-actions' }, ...children, h('span', { class: 'spacer' }), remove);
+
+    if (l.mine) return bar(l.deal_count ? h('button', { class: 'btn small', onclick: toDeals }, 'Zu deinen Deals') : h('span', { class: 'faint small' }, 'Dein Eintrag'));
+    if (l.my_deal) return bar(h('button', { class: 'btn small', onclick: toDeals }, 'Du verhandelst schon · Zum Deal'));
+    if (l.status !== 'open') return remove ? bar() : null;
+
+    if (l.kind === 'sell' && l.price_type === 'fixed') {
+      return bar(h('button', {
+        class: 'btn emerald',
+        onclick: (event) => {
+          if (!confirm(`${amount(l.quantity, l.title)} für ${priceText(l.price)} von ${l.author} kaufen? Danach trefft ihr euch im Spiel zur Übergabe.`)) return;
+          act(event.currentTarget, async () => {
+            await rpc('market_buy', { p_token: state.token, p_listing_id: l.id });
+            state.market.view = 'deals';
+            window.scrollTo(0, 0);
+          }, 'Gekauft! Der Deal steht unter „Meine Deals“.');
+        }
+      }, `Kaufen · ${priceText(l.price)}`));
+    }
+
+    // VB: price offer for an Angebot, delivery offer for a Gesuch
+    const price = priceInput({ placeholder: 'Preis', value: l.price ?? '', 'aria-label': 'Dein Preis in Diamanten', required: true });
+    const send = h('button', { class: 'btn gold', type: 'submit' }, l.kind === 'sell' ? 'Preis vorschlagen' : 'Ich kann liefern');
+    return h('form', {
+      class: 'listing-actions offer',
+      onsubmit: (event) => {
+        event.preventDefault();
+        act(send, async () => {
+          await rpc('market_offer', { p_token: state.token, p_listing_id: l.id, p_price: Number(price.input.value), p_body: null });
+          state.market.view = 'deals';
+          window.scrollTo(0, 0);
+        }, 'Angebot geschickt. Weiter geht es unter „Meine Deals“.');
+      }
+    }, price.box, send, h('span', { class: 'spacer' }), remove);
+  }
+
+  function marketDeals(mine) {
+    const active = mine.deals.filter((d) => d.status === 'open' || d.status === 'agreed');
+    const past = mine.deals.filter((d) => d.status !== 'open' && d.status !== 'agreed');
+    return h('div', {},
+      h('p', { class: 'eyebrow section-label' }, 'Laufende Deals'),
+      active.length ? active.map(dealCard) : h('div', { class: 'empty' }, 'Gerade keine laufenden Deals. Schau bei den Angeboten oder Gesuchen vorbei.'),
+      h('p', { class: 'eyebrow section-label' }, 'Deine Einträge'),
+      mine.listings.length ? h('div', { class: 'card thick my-listings' }, mine.listings.map(myListingRow)) : h('div', { class: 'empty' }, 'Du hast noch nichts eingestellt.'),
+      past.length ? [h('p', { class: 'eyebrow section-label' }, 'Beendet (letzte 14 Tage)'), ...past.map(dealCard)] : null);
+  }
+
+  function dealRole(d) {
+    if (d.listing.kind === 'sell') return d.i_own_listing ? `Du verkaufst an ${d.partner}` : `Du kaufst von ${d.partner}`;
+    return d.i_own_listing ? `${d.partner} liefert dir` : `Du lieferst an ${d.partner}`;
+  }
+
+  function dealCard(d) {
+    const active = d.status === 'open' || d.status === 'agreed';
+    const myTurn = d.status === 'open' && !d.last_by_me;
+    const call = (fn) => () => rpc(fn, { p_token: state.token, p_deal_id: d.id });
+
+    const top = h('div', { class: 'deal-head' },
+      head(d.partner_uuid, 32),
+      h('div', { class: 'deal-title' }, h('h3', {}, amount(d.listing.quantity, d.listing.title)), h('p', { class: 'muted small' }, dealRole(d))),
+      myTurn ? h('span', { class: 'badge caution' }, 'Du bist dran') : null,
+      d.status === 'agreed' ? h('span', { class: 'badge ok' }, 'Übergabe offen') : null,
+      active ? null : h('span', { class: 'badge' + (d.status === 'done' ? ' ok' : '') }, DEAL_STATUS[d.status]));
+
+    // Verhandlung (gold) -> Deal -> Uebergeben (smaragd)
+    const reached = { open: 0, agreed: 1, done: 3 }[d.status];
+    const steps = reached == null ? null : h('ol', { class: 'deal-steps' }, ['Verhandlung', 'Deal', 'Übergeben'].map((label, i) =>
+      h('li', { class: (i === 0 ? 'talk' : 'deal') + (i < reached ? ' done' : i === reached ? ' now' : '') }, h('i'), label)));
+
+    const summary = d.price == null ? null : h('div', { class: 'deal-sum' },
+      h('span', {}, d.status === 'open' ? (d.last_by_me ? 'Dein letztes Angebot' : `Angebot von ${d.partner}`) : 'Vereinbart'),
+      priceTag(d.price));
+
+    const log = h('div', { class: 'deal-log' }, d.messages.map((msg) => {
+      if (msg.kind === 'system') return h('p', { class: 'log-system' }, msg.body);
+      const when = h('time', { datetime: msg.created_at }, ago(msg.created_at));
+      if (msg.kind === 'offer') {
+        return h('p', { class: 'log-offer' + (msg.mine ? ' mine' : '') },
+          h('b', {}, msg.mine ? 'Du' : msg.author), msg.mine ? ' bietest ' : ' bietet ', h('span', { class: 'chip' }, priceText(msg.price)), when);
+      }
+      return h('p', { class: 'log-text' + (msg.mine ? ' mine' : '') }, h('b', {}, (msg.mine ? 'Du' : msg.author) + ': '), msg.body, when);
+    }));
+    requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+
+    const controls = [];
+    if (d.status === 'open') {
+      const counter = priceInput({ placeholder: 'Preis', 'aria-label': d.last_by_me ? 'Neuer Preis in Diamanten' : 'Gegenangebot in Diamanten', required: true });
+      const counterButton = h('button', { class: 'btn gold', type: 'submit' }, d.last_by_me ? 'Neues Angebot' : 'Gegenangebot');
+      controls.push(h('div', { class: 'deal-actions' },
+        myTurn
+          ? h('button', { class: 'btn emerald', onclick: (event) => act(event.currentTarget, call('market_accept'), 'Deal! Trefft euch im Spiel zur Übergabe.') },
+            icon('check'), `Annehmen · ${priceText(d.price)}`)
+          : h('span', { class: 'muted small' }, `Wartet auf ${d.partner} …`),
+        h('form', {
+          class: 'offer',
+          onsubmit: (event) => {
+            event.preventDefault();
+            act(counterButton, () => rpc('market_counter', { p_token: state.token, p_deal_id: d.id, p_price: Number(counter.input.value) }), 'Angebot geschickt.');
+          }
+        }, counter.box, counterButton),
+        h('span', { class: 'spacer' }),
+        h('button', {
+          class: 'btn small ghost warn',
+          onclick: (event) => {
+            if (confirm(d.i_own_listing ? `Angebot von ${d.partner} ablehnen?` : 'Verhandlung beenden?')) {
+              act(event.currentTarget, call('market_decline'), d.i_own_listing ? 'Abgelehnt.' : 'Verhandlung beendet.');
+            }
+          }
+        }, d.i_own_listing ? 'Ablehnen' : 'Zurückziehen')));
+    }
+    if (d.status === 'agreed') {
+      controls.push(h('div', { class: 'notice ok' }, h('i'),
+        h('span', {}, h('b', {}, `Deal über ${priceText(d.price)}. `), 'Trefft euch im Spiel, tauscht Items gegen Diamanten und bestätigt danach hier die Übergabe.')));
+      controls.push(h('div', { class: 'deal-actions' },
+        h('button', {
+          class: 'btn emerald',
+          onclick: (event) => {
+            if (confirm('Hat die Übergabe im Spiel geklappt? Danach ist der Deal erledigt.')) act(event.currentTarget, call('market_done'), 'Erledigt. Danke fürs Handeln!');
+          }
+        }, icon('check'), 'Übergabe bestätigen'),
+        h('span', { class: 'spacer' }),
+        h('button', {
+          class: 'btn small ghost warn',
+          onclick: (event) => {
+            if (confirm('Deal wirklich abbrechen? Der Eintrag ist danach wieder offen.')) act(event.currentTarget, call('market_cancel'), 'Deal abgebrochen.');
+          }
+        }, 'Deal abbrechen')));
+    }
+    if (active) {
+      const text = h('input', { maxlength: '500', placeholder: `Nachricht an ${d.partner} …`, 'aria-label': 'Nachricht' });
+      const sendButton = h('button', { class: 'btn', type: 'submit' }, 'Senden');
+      controls.push(h('form', {
+        class: 'deal-chat',
+        onsubmit: (event) => {
+          event.preventDefault();
+          if (!text.value.trim()) return;
+          act(sendButton, () => rpc('market_message', { p_token: state.token, p_deal_id: d.id, p_body: text.value }));
+        }
+      }, text, sendButton));
+    }
+
+    return h('article', { class: 'card thick deal' + (myTurn ? ' my-turn' : '') + (active ? '' : ' finished') },
+      top, steps, summary, log, controls);
+  }
+
+  function myListingRow(l) {
+    const active = l.status === 'open' || l.status === 'reserved';
+    return h('div', { class: 'my-row' },
+      h('span', { class: 'badge' + (l.kind === 'sell' ? ' set' : '') }, l.kind === 'sell' ? 'Angebot' : 'Gesuch'),
+      h('div', { class: 'my-row-main' },
+        h('b', {}, amount(l.quantity, l.title)),
+        h('span', { class: 'faint small' }, [priceText(l.price), l.kind === 'sell' && l.price_type === 'fixed' ? 'Festpreis' : 'VB', ago(l.created_at)].join(' · '))),
+      l.deal_count && active ? h('span', { class: 'faint small' }, `${l.deal_count} im Gespräch`) : null,
+      h('span', { class: 'badge' + (l.status === 'reserved' || l.status === 'done' ? ' ok' : '') }, LISTING_STATUS[l.status]),
+      active ? h('button', {
+        class: 'btn small ghost warn',
+        onclick: (event) => {
+          if (confirm('Eintrag zurückziehen? Laufende Verhandlungen werden beendet.')) {
+            act(event.currentTarget, () => rpc('market_close', { p_token: state.token, p_id: l.id }), 'Zurückgezogen.');
+          }
+        }
+      }, 'Zurückziehen') : null);
   }
 
   // ---------------------------------------------------------------- Vorschlaege
