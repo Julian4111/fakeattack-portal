@@ -522,6 +522,31 @@ details.card[open] > summary::after { content: "\2212"; }
 .notice.guide { background: var(--guide-soft); } .notice.guide i { background: var(--guide); }
 .escrow-progress { display: block; margin-top: 6px; font-weight: 600; color: var(--text); }
 
+/* Inventar: Felder wie im Spiel, 9 pro Reihe */
+.inv { display: grid; gap: 16px; }
+.inv-cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+.inv-section + .inv-section { margin-top: 16px; }
+.inv-section .eyebrow { margin-bottom: 8px; }
+.inv-grid { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; max-width: 446px; }
+.slot { position: relative; aspect-ratio: 1; min-width: 0; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: var(--well); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07); color: var(--text); font: inherit; }
+.slot.filled { cursor: pointer; }
+.slot.filled:hover { background: var(--fill-2); }
+.slot.on { box-shadow: inset 0 0 0 2px var(--guide); }
+.slot.box::after { content: ""; position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--guide); }
+.slot.ench img { filter: drop-shadow(0 0 3px rgba(190, 120, 255, .85)); }
+.slot img { width: 72%; height: 72%; object-fit: contain; image-rendering: pixelated; pointer-events: none; }
+.slot .count { position: absolute; right: 3px; bottom: 1px; font: 700 12px var(--mono); text-shadow: 1px 1px 0 #000; }
+.slot .dur { position: absolute; left: 5px; right: 5px; bottom: 4px; height: 3px; border-radius: 2px; background: rgba(0, 0, 0, .6); }
+.slot .dur::before { content: ""; display: block; height: 100%; width: calc(var(--dur) * 100%); border-radius: 2px; background: hsl(calc(var(--dur) * 120) 80% 50%); }
+.slot-text { font: 700 11px var(--mono); color: var(--text-2); }
+.inv-detail { display: grid; gap: 12px; }
+.inv-detail .inv-detail { padding-top: 12px; border-top: 1px solid var(--line); }
+.inv-detail-head { display: flex; gap: 12px; align-items: center; }
+.inv-detail-head .slot { width: 46px; flex: none; }
+.inv-detail-head div { display: grid; gap: 2px; }
+.admin-more { width: auto; height: 32px; font-size: 13px; }
+.admin-pick { width: auto; min-width: 0; max-width: 100%; flex: 0 1 260px; }
+
 /* ---------- Admin-Panel ---------- */
 
 .admin-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }

@@ -25,6 +25,7 @@
   const PAGES = {
     start: { title: 'Start', short: 'Start', icon: 'home', render: renderStart },
     boerse: { title: 'Börse', short: 'Börse', icon: 'gem', render: renderMarket },
+    inventar: { title: 'Inventar', short: 'Inventar', icon: 'chest', render: renderInventory },
     vorschlaege: { title: 'Vorschläge', short: 'Ideen', icon: 'idea', render: renderSuggestions },
     abstimmungen: { title: 'Abstimmungen', short: 'Umfragen', icon: 'poll', render: renderPolls },
     einspruch: { title: 'Einspruch', short: 'Einspruch', icon: 'shield', render: renderAppeal },
@@ -49,6 +50,7 @@
     map: '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>',
     chat: '<path d="M4 5h16v11H10l-6 4z"/>',
     gem: '<path d="M7 4h10l4 5-9 11L3 9z"/><path d="M3 9h18M12 20 8.5 9 11 4M12 20l3.5-11L13 4"/>',
+    chest: '<path d="M4 9a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v10H4z"/><path d="M4 12h16M11 11h2v3h-2z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
     check: '<path d="m5 12 5 5 9-10"/>',
@@ -519,6 +521,8 @@
       h('div', { class: 'grid', style: 'margin-top:16px' },
         h('a', { class: 'card link-card', href: '#/boerse' },
           h('h3', {}, 'Börse'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Items kaufen, verkaufen und bestellen.')),
+        h('a', { class: 'card link-card', href: '#/inventar' },
+          h('h3', {}, 'Inventar'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Inventar, Endertruhe, Shulkerkisten und Rucksäcke ansehen.')),
         h('a', { class: 'card link-card', href: '#/vorschlaege' },
           h('h3', {}, 'Vorschläge'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Ideen für den Server einreichen und bewerten.')),
         h('a', { class: 'card link-card', href: '#/abstimmungen' },
@@ -526,6 +530,141 @@
         h('a', { class: 'card link-card tour-link', href: '#/start', onclick: (event) => { event.preventDefault(); startTour(); } },
           h('h3', {}, 'Rundgang'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Alle Funktionen in ein paar Minuten, mit Übungs-Börse.')),
         githubLink === null ? githubCard(null) : null));
+  }
+
+  // ---------------------------------------------------------------- Inventar
+
+  // item pictures: rendered icons first, then the plain textures; without any picture the slot shows letters
+  const ICON_URLS = [
+    (id) => `https://mc.nerothe.com/img/1.21.8/minecraft_${id}.png`,
+    (id) => `https://assets.mcasset.cloud/26.3/assets/minecraft/textures/item/${id}.png`,
+    (id) => `https://assets.mcasset.cloud/26.3/assets/minecraft/textures/block/${id}.png`
+  ];
+  // German names from the market's item list; the first name wins
+  const ITEM_NAMES = new Map(Object.entries(window.MARKET_ITEM_IDS || {}).map(([name, id]) => [id, name]).reverse());
+  const ENCHANTS = {
+    protection: 'Schutz', fire_protection: 'Feuerschutz', blast_protection: 'Explosionsschutz', projectile_protection: 'Schusssicher',
+    feather_falling: 'Federfall', respiration: 'Atmung', aqua_affinity: 'Wasseraffinität', thorns: 'Dornen', depth_strider: 'Wasserläufer',
+    frost_walker: 'Eisläufer', soul_speed: 'Seelenläufer', swift_sneak: 'Huschen', sharpness: 'Schärfe', smite: 'Bann',
+    bane_of_arthropods: 'Nemesis der Gliederfüßer', knockback: 'Rückstoß', fire_aspect: 'Verbrennung', looting: 'Plünderung',
+    sweeping_edge: 'Schwungkraft', efficiency: 'Effizienz', silk_touch: 'Behutsamkeit', unbreaking: 'Haltbarkeit', fortune: 'Glück',
+    power: 'Stärke', punch: 'Schlag', flame: 'Flamme', infinity: 'Unendlichkeit', luck_of_the_sea: 'Glück des Meeres', lure: 'Köder',
+    loyalty: 'Treue', impaling: 'Harpune', riptide: 'Sog', channeling: 'Entladung', multishot: 'Mehrfachschuss', quick_charge: 'Schnellladen',
+    piercing: 'Durchschuss', density: 'Dichte', breach: 'Durchbruch', wind_burst: 'Windstoß', mending: 'Reparatur',
+    binding_curse: 'Fluch der Bindung', vanishing_curse: 'Fluch des Verschwindens'
+  };
+  const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+  const CONTAINERS = { shulker: 'Shulkerkiste', backpack: 'Rucksack', bundle: 'Bündel' };
+
+  const prettyId = (id) => String(id).split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  const itemName = (item) => item.name || ITEM_NAMES.get(item.id)
+    || (String(item.id).endsWith('shulker_box') ? 'Shulkerkiste' : item.id === 'bundle' ? 'Bündel' : prettyId(item.id));
+  // a backpack is leather to the game; it looks like a bundle (yellow, green, purple by size)
+  const iconId = (item) => item.kind === 'backpack' ? ({ 27: 'green_bundle', 54: 'purple_bundle' })[item.slots] || 'bundle' : item.id;
+
+  function itemLines(item) {
+    const lines = [];
+    if (item.kind) lines.push(CONTAINERS[item.kind] + (item.items ? ` · ${item.items.length} Stapel drin` : ''));
+    if (item.potion) lines.push('Trank: ' + prettyId(item.potion));
+    for (const [id, level] of item.ench || []) lines.push(`${ENCHANTS[id] || prettyId(id)} ${ROMAN[level] || level}`);
+    if (item.max) lines.push(`Haltbarkeit ${item.max - item.dmg} / ${item.max}`);
+    return lines;
+  }
+
+  function itemIcon(id) {
+    const img = h('img', { alt: '', loading: 'lazy', draggable: 'false' });
+    let step = 0;
+    img.onerror = () => {
+      step += 1;
+      if (step < ICON_URLS.length) img.src = ICON_URLS[step](id);
+      else img.replaceWith(h('span', { class: 'slot-text' }, prettyId(id).split(' ').map((word) => word.charAt(0)).join('').slice(0, 3)));
+    };
+    img.src = ICON_URLS[0](id);
+    return img;
+  }
+
+  function slotEl(item, open) {
+    if (!item) return h('span', { class: 'slot' });
+    const tip = [itemName(item) + (item.n > 1 ? ` × ${item.n}` : ''), ...itemLines(item)].join('\n');
+    const el = h('button', {
+      type: 'button', title: tip, 'aria-label': tip,
+      class: 'slot filled' + (item.items ? ' box' : '') + (item.ench ? ' ench' : ''),
+      onclick: () => open(item, el)
+    },
+    itemIcon(iconId(item)),
+    item.n > 1 ? h('b', { class: 'count' }, item.n) : null,
+    item.max ? h('i', { class: 'dur', style: `--dur:${Math.max(0, (item.max - item.dmg) / item.max).toFixed(2)}` }) : null);
+    return el;
+  }
+
+  function slotGrid(items, from, count, open) {
+    const bySlot = new Map((items || []).map((item) => [item.s, item]));
+    const grid = h('div', { class: 'inv-grid' });
+    for (let slot = from; slot < from + count; slot++) grid.append(slotEl(bySlot.get(slot), open));
+    return grid;
+  }
+
+  // one highlighted slot per area; a second click on it closes the details again
+  function selectable(area, show) {
+    return (item, el) => {
+      const again = el.classList.contains('on');
+      area().querySelectorAll('.slot.on').forEach((slot) => slot.classList.remove('on'));
+      if (!again) el.classList.add('on');
+      show(again ? null : item);
+    };
+  }
+
+  // details of a clicked item; boxes, backpacks and bundles also show what lies inside (and so on, one level deeper)
+  function itemDetail(item) {
+    const inner = h('div');
+    let box;
+    const open = selectable(() => box, (child) => inner.replaceChildren(...(child ? [itemDetail(child)] : [])));
+    const size = item.kind === 'bundle' ? Math.max(9, Math.ceil((item.items || []).length / 9) * 9) : item.slots || 27;
+    box = h('div', { class: 'inv-detail' },
+      h('div', { class: 'inv-detail-head' }, h('span', { class: 'slot filled' }, itemIcon(iconId(item))),
+        h('div', {}, h('b', {}, itemName(item) + (item.n > 1 ? ` × ${item.n}` : '')),
+          ...itemLines(item).map((line) => h('span', { class: 'faint small' }, line)))),
+      item.kind ? ((item.items || []).length ? slotGrid(item.items, 0, size, open) : h('p', { class: 'faint small' }, 'Leer.')) : null,
+      inner);
+    return box;
+  }
+
+  function inventoryView(snap) {
+    const data = snap.data || {};
+    const s = data.stats || {};
+    const inv = data.inv || [];
+    const bySlot = new Map(inv.map((item) => [item.s, item]));
+    const detail = h('div');
+    let area;
+    const open = selectable(() => area, (item) => {
+      detail.replaceChildren(...(item ? [h('div', { class: 'card thick' }, itemDetail(item))] : []));
+      if (item) requestAnimationFrame(() => detail.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    });
+    const section = (title, grid) => h('div', { class: 'inv-section' }, h('p', { class: 'eyebrow' }, title), grid);
+    const stats = [
+      s.health != null ? `Leben ${s.health} / ${s.max_health}` : null, s.food != null ? `Hunger ${s.food} / 20` : null,
+      s.level != null ? `Level ${s.level}` : null, GAMEMODES[s.gamemode],
+      s.world ? `${WORLDS[s.world] || s.world} ${s.x} / ${s.y} / ${s.z}` : null
+    ].filter(Boolean).join(' · ');
+    area = h('div', { class: 'inv' },
+      h('p', { class: 'faint small inv-meta' }, `${stats}${stats ? ' · ' : ''}Stand ${ago(snap.updated_at)}`),
+      h('div', { class: 'inv-cols' },
+        h('div', { class: 'card thick' },
+          section('Rüstung und zweite Hand', h('div', { class: 'inv-grid' }, [39, 38, 37, 36, 40].map((slot) => slotEl(bySlot.get(slot), open)))),
+          section('Inventar', slotGrid(inv, 9, 27, open)),
+          section('Schnellleiste', slotGrid(inv, 0, 9, open))),
+        h('div', { class: 'card thick' },
+          section('Endertruhe', slotGrid(data.ender, 0, 27, open)),
+          h('p', { class: 'faint small', style: 'margin-top:14px' }, 'Klick auf ein Item zeigt Verzauberungen und Haltbarkeit. Bei Shulkerkisten, Rucksäcken und Bündeln siehst du, was drin liegt.'))),
+      detail);
+    return area;
+  }
+
+  async function renderInventory() {
+    const snap = await rpc('my_inventory', { p_token: state.token });
+    return h('div', {},
+      pageHead('Dein Spieler', 'Inventar', 'Inventar und Endertruhe, auch was in deinen Shulkerkisten und Rucksäcken liegt. Solange du online bist, wird es jede Minute aktualisiert.'),
+      snap ? inventoryView(snap) : h('div', { class: 'empty' }, 'Noch nichts da. Sobald du auf dem Server bist, erscheint hier nach spätestens einer Minute dein Inventar.'));
   }
 
   // ---------------------------------------------------------------- Konto
@@ -1274,20 +1413,24 @@
   // ---------------------------------------------------------------- Admin
 
   async function renderAdmin() {
-    const [server, appeals] = await Promise.all([
+    const [server, appeals, inventories] = await Promise.all([
       rpc('admin_server', { p_token: state.token }),
-      rpc('admin_list_appeals', { p_token: state.token })
+      rpc('admin_list_appeals', { p_token: state.token }),
+      rpc('admin_inventories', { p_token: state.token })
     ]);
     const pending = appeals.filter((a) => a.status === 'pending').length;
     const waiting = server.commands.some((c) => c.status === 'pending' || c.status === 'running');
-    // answers from the server arrive within seconds; otherwise the values refresh every 20 s
+    // answers from the server arrive within seconds; otherwise the values refresh every 20 s,
+    // but not while an inventory is open (it would close again)
     state.refreshTimer = setTimeout(() => {
-      if (currentPage() === 'admin' && !document.querySelector('#app input:focus, #app textarea:focus, #app select:focus')) refresh();
+      if (currentPage() === 'admin' && !state.adminInventory && !document.querySelector('#app input:focus, #app textarea:focus, #app select:focus')) refresh();
     }, waiting ? 2500 : 20000);
     return h('div', {},
       pageHead('Admin', 'Server-Verwaltung', 'Befehle gehen über die Website an den Server, die Antwort der Konsole steht unten. Vorschläge und Abstimmungen bearbeitest du auf ihren Seiten.'),
       h('div', { class: 'grid' }, adminServerCard(server), adminCountdownCard()),
-      adminPlayersCard(server),
+      adminPlayersCard(server, inventories),
+      h('div', { class: 'grid', style: 'margin-top:16px' }, adminWorldCard(), adminPunishCard()),
+      adminInventoryCard(inventories),
       adminConsoleCard(server),
       h('div', { class: 'row section-label' }, h('p', { class: 'eyebrow' }, 'Ban-Einsprüche'),
         h('span', { class: 'badge ' + (pending ? 'pending' : '') }, `${pending} offen`)),
@@ -1316,8 +1459,16 @@
         h('div', {}, h('p', { class: 'eyebrow' }, 'Arbeitsspeicher'), h('b', { class: 'stat' }, ram == null ? '–' : `${ram} %`),
           h('span', { class: 'faint small' }, d.ram_max_mb ? `${(d.ram_used_mb / 1024).toFixed(1)} von ${(d.ram_max_mb / 1024).toFixed(1)} GB` : ''))),
       ram == null ? null : h('div', { class: 'meter' }, h('i', { class: ram > 85 ? 'alert' : ram > 70 ? 'caution' : '', style: `width:${ram}%` })),
-      h('p', { class: 'faint small', style: 'margin-top:12px' },
+      d.uptime_min == null ? null : h('p', { class: 'faint small', style: 'margin-top:12px' },
+        `Läuft seit ${uptime(d.uptime_min)} · ${d.chunks} Chunks · ${d.entities} Entities`),
+      h('p', { class: 'faint small', style: 'margin-top:4px' },
         [server.version ? `Minecraft ${server.version}` : null, server.updated_at ? `Stand ${formatDate(server.updated_at)}` : null].filter(Boolean).join(' · ')));
+  }
+
+  function uptime(minutes) {
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor(minutes / 60) % 24;
+    return (days ? `${days} d ` : '') + (days || hours ? `${hours} h ` : '') + `${minutes % 60} min`;
   }
 
   function adminCountdownCard() {
@@ -1360,52 +1511,161 @@
       }, message, send));
   }
 
-  function adminPlayersCard(server) {
+  const ask = (question) => {
+    const answer = prompt(question);
+    return answer == null ? null : answer.trim();
+  };
+  // AdvancedBan: 30m, 6h, 7d, 1mo
+  const PUNISH_TIME = /^\d+(s|m|h|d|mo)$/i;
+
+  // the punishments of the game menu, run through AdvancedBan; reason (and duration) are asked first
+  function punish(button, what, name, label, timed) {
+    if (!validName(name)) return;
+    let time = '';
+    if (timed) {
+      time = ask(`${label} für ${name}: wie lange? z. B. 30m, 6h, 7d${what === 'tempmute' ? ' (leer = dauerhaft)' : ''}`);
+      if (time == null) return;
+      if (what === 'tempmute' && !time) what = 'mute';
+      else if (!PUNISH_TIME.test(time)) {
+        toast('Die Dauer bitte wie 30m, 6h, 7d oder 1mo angeben.', 'error');
+        return;
+      }
+    }
+    const why = ask(`${label} für ${name}: Grund?`);
+    if (!why) return;
+    if ((what === 'ban' || what === 'tempban') && !confirm(`${name} wirklich ${what === 'ban' ? 'dauerhaft' : 'für ' + time} bannen?`)) return;
+    sendCommand(button, [what, name, time, why].filter(Boolean).join(' '), `${label}: ${name}`);
+  }
+
+  // everything from the player menu in the game; the less common things are in the "Mehr" list
+  const PLAYER_ACTIONS = [
+    ['Spielmodus', [['gm:survival', 'Überleben'], ['gm:creative', 'Kreativ'], ['gm:adventure', 'Abenteuer'], ['gm:spectator', 'Zuschauer']]],
+    ['Hilfe', [['fly:an', 'Fliegen an'], ['fly:aus', 'Fliegen aus'], ['zumspawn', 'Zum Spawn schicken']]],
+    ['Strafen', [['history', 'Strafen-Verlauf'], ['warn', 'Verwarnen …'], ['tempmute', 'Stummschalten …'], ['unmute', 'Stummschaltung aufheben'],
+      ['kick', 'Kicken …'], ['tempban', 'Zeitweise bannen …'], ['ban', 'Dauerhaft bannen …']]]
+  ];
+
+  function playerAction(select, name) {
+    const [action, arg] = select.value.split(':');
+    select.value = '';
+    if (!action || !validName(name)) return;
+    if (action === 'gm') sendCommand(select, `gamemode ${arg} ${name}`, `${name}: ${GAMEMODES[arg]}`);
+    else if (action === 'fly') sendCommand(select, `fly ${name} ${arg}`, `${name}: Fliegen ${arg}`);
+    else if (action === 'zumspawn' || action === 'history' || action === 'unmute') sendCommand(select, `${action} ${name}`);
+    else if (action === 'warn') punish(select, 'warn', name, 'Verwarnung');
+    else if (action === 'tempmute') punish(select, 'tempmute', name, 'Stummschaltung', true);
+    else if (action === 'kick') punish(select, 'kick', name, 'Kick');
+    else if (action === 'tempban') punish(select, 'tempban', name, 'Zeitbann', true);
+    else if (action === 'ban') punish(select, 'ban', name, 'Bann');
+  }
+
+  function adminPlayersCard(server, inventories) {
     const details = (server.details && server.details.players) || [];
     const players = server.online ? (details.length ? details : server.players) : [];
-    const ask = (question) => {
-      const answer = prompt(question);
-      return answer == null ? null : answer.trim();
-    };
-    const unban = h('input', { placeholder: 'Spielername', 'aria-label': 'Spieler entbannen', maxlength: '16' });
-    const unbanButton = h('button', { class: 'btn', type: 'submit' }, 'Entbannen');
+    const known = new Set(inventories.map((p) => p.uuid));
     return h('div', { class: 'card thick', style: 'margin-top:16px' },
       h('div', { class: 'row' }, h('p', { class: 'eyebrow' }, `Spieler online · ${players.length}`)),
-      players.length ? h('div', { class: 'admin-players' }, players.map((p) => h('div', { class: 'admin-player' },
-        h('span', { class: 'who' }, head(p.uuid, 24), h('b', {}, p.name)),
-        h('span', { class: 'faint small' }, [p.ping != null ? `${p.ping} ms` : null, GAMEMODES[p.gamemode], WORLDS[p.world], p.health != null ? `${p.health} ♥` : null].filter(Boolean).join(' · ')),
-        h('span', { class: 'spacer' }),
+      players.length ? h('div', { class: 'admin-players' }, players.map((p) => {
+        const more = h('select', { class: 'admin-more', 'aria-label': `Weitere Aktionen für ${p.name}`, onchange: () => playerAction(more, p.name) },
+          h('option', { value: '' }, 'Mehr …'),
+          PLAYER_ACTIONS.map(([group, options]) => h('optgroup', { label: group }, options.map(([value, label]) => h('option', { value }, label)))));
+        return h('div', { class: 'admin-player' },
+          h('span', { class: 'who' }, head(p.uuid, 24), h('b', {}, p.name)),
+          h('span', { class: 'faint small' }, [p.ping != null ? `${p.ping} ms` : null, GAMEMODES[p.gamemode], WORLDS[p.world], p.health != null ? `${p.health} ♥` : null].filter(Boolean).join(' · ')),
+          h('span', { class: 'spacer' }),
+          known.has(p.uuid) ? h('button', { class: 'btn small', onclick: () => showAdminInventory(p.uuid) }, 'Inventar') : null,
+          h('button', { class: 'btn small', onclick: (event) => sendCommand(event.currentTarget, `heal ${p.name}`, `${p.name} wird geheilt.`) }, 'Heilen'),
+          h('button', { class: 'btn small', onclick: (event) => sendCommand(event.currentTarget, `feed ${p.name}`, `${p.name} wird gefüttert.`) }, 'Füttern'),
+          h('button', {
+            class: 'btn small', onclick: (event) => {
+              const text = ask(`Nachricht an ${p.name}:`);
+              if (text && validName(p.name)) sendCommand(event.currentTarget, `pmsg ${p.name} ${text}`, 'Nachricht gesendet.');
+            }
+          }, 'Nachricht'),
+          more);
+      }))
+        : h('p', { class: 'muted small', style: 'margin-top:10px' }, server.online ? 'Gerade ist niemand online.' : 'Der Server ist offline.'));
+  }
+
+  function adminWorldCard() {
+    const row = (items) => h('div', { class: 'row', style: 'margin-top:8px;flex-wrap:wrap;gap:6px' },
+      items.map(([label, command, done]) => h('button', { class: 'btn small', onclick: (event) => sendCommand(event.currentTarget, command, done) }, label)));
+    return h('div', { class: 'card thick' },
+      h('p', { class: 'eyebrow' }, 'Welt'),
+      h('p', { class: 'faint small', style: 'margin-top:10px' }, 'Uhrzeit in der Oberwelt'),
+      row([['Morgen', 'zeit morgen', 'Es wird Morgen.'], ['Mittag', 'zeit mittag', 'Es wird Mittag.'], ['Nacht', 'zeit nacht', 'Es wird Nacht.'], ['Mitternacht', 'zeit mitternacht', 'Es wird Mitternacht.']]),
+      h('p', { class: 'faint small', style: 'margin-top:12px' }, 'Wetter'),
+      row([['Klar', 'wetter klar', 'Wetter: klar.'], ['Regen', 'wetter regen', 'Wetter: Regen.'], ['Gewitter', 'wetter gewitter', 'Wetter: Gewitter.']]),
+      h('p', { class: 'faint small', style: 'margin-top:12px' }, 'Server'),
+      h('div', { class: 'row', style: 'margin-top:8px;flex-wrap:wrap;gap:6px' },
         h('button', {
-          class: 'btn small', onclick: (event) => {
-            const text = ask(`Nachricht an ${p.name}:`);
-            if (text && validName(p.name)) sendCommand(event.currentTarget, `pmsg ${p.name} ${text}`, 'Nachricht gesendet.');
-          }
-        }, 'Nachricht'),
-        h('button', {
-          class: 'btn small', onclick: (event) => {
-            const why = ask(`Grund für den Kick von ${p.name}:`);
-            if (why && validName(p.name)) sendCommand(event.currentTarget, `kick ${p.name} ${why}`, `${p.name} wird gekickt.`);
-          }
-        }, 'Kicken'),
-        h('button', {
-          class: 'btn small danger', onclick: (event) => {
-            const why = ask(`Grund für den Bann von ${p.name} (dauerhaft):`);
-            if (why && validName(p.name) && confirm(`${p.name} wirklich bannen?`)) sendCommand(event.currentTarget, `ban ${p.name} ${why}`, `${p.name} wird gebannt.`);
-          }
-        }, 'Bannen'))))
-        : h('p', { class: 'muted small', style: 'margin-top:10px' }, server.online ? 'Gerade ist niemand online.' : 'Der Server ist offline.'),
-      h('form', {
-        class: 'admin-inline', style: 'margin-top:16px',
-        onsubmit: (event) => {
-          event.preventDefault();
-          const name = unban.value.trim();
-          if (!validName(name)) {
-            toast('Bitte einen gültigen Spielernamen eingeben.', 'error');
-            return;
-          }
-          sendCommand(unbanButton, `unban ${name}`, `${name} wird entbannt.`);
-        }
-      }, unban, unbanButton));
+          class: 'btn small', onclick: (event) => { if (confirm('Alle herumliegenden Items entfernen?')) sendCommand(event.currentTarget, 'bodenitems', 'Boden-Items werden entfernt.'); }
+        }, 'Boden-Items entfernen'),
+        h('button', { class: 'btn small', onclick: (event) => sendCommand(event.currentTarget, 'countdown status') }, 'Countdown-Status')));
+  }
+
+  // also for players who are offline
+  function adminPunishCard() {
+    const name = h('input', { placeholder: 'Spielername', 'aria-label': 'Spielername', maxlength: '16' });
+    const check = () => {
+      const value = name.value.trim();
+      if (validName(value)) return value;
+      toast('Bitte einen gültigen Spielernamen eingeben.', 'error');
+      return null;
+    };
+    const action = (label, run, cls) => h('button', { class: 'btn small' + (cls ? ' ' + cls : ''), type: 'button', onclick: (event) => { const n = check(); if (n) run(event.currentTarget, n); } }, label);
+    return h('div', { class: 'card thick' },
+      h('p', { class: 'eyebrow' }, 'Strafen'),
+      h('p', { class: 'faint small', style: 'margin-top:10px' }, 'Geht auch, wenn der Spieler offline ist.'),
+      h('div', { class: 'admin-inline', style: 'margin-top:8px' }, name),
+      h('div', { class: 'row', style: 'margin-top:8px;flex-wrap:wrap;gap:6px' },
+        action('Entbannen', (b, n) => sendCommand(b, `unban ${n}`, `${n} wird entbannt.`)),
+        action('Stummschaltung aufheben', (b, n) => sendCommand(b, `unmute ${n}`)),
+        action('Verlauf', (b, n) => sendCommand(b, `history ${n}`)),
+        action('Bannen …', (b, n) => punish(b, 'ban', n, 'Bann'), 'danger')),
+      h('div', { class: 'row', style: 'margin-top:12px' },
+        h('button', { class: 'btn small ghost', onclick: (event) => sendCommand(event.currentTarget, 'banlist') }, 'Bann-Liste anzeigen')));
+  }
+
+  // which player's inventory is open; kept while the page refreshes
+  function showAdminInventory(uuid) {
+    state.adminInventory = uuid;
+    const select = document.querySelector('#admin-inventory select');
+    if (select) {
+      select.value = uuid;
+      select.dispatchEvent(new Event('change'));
+      document.getElementById('admin-inventory').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  function adminInventoryCard(list) {
+    const body = h('div');
+    const select = h('select', { class: 'admin-pick', 'aria-label': 'Spieler' }, h('option', { value: '' }, 'Spieler wählen …'),
+      list.map((p) => h('option', { value: p.uuid, selected: state.adminInventory === p.uuid }, `${p.name} · ${ago(p.updated_at)}`)));
+    const load = async (uuid) => {
+      state.adminInventory = uuid || null;
+      if (!uuid) {
+        body.replaceChildren();
+        return;
+      }
+      body.replaceChildren(h('p', { class: 'faint small', style: 'margin-top:14px' }, 'Lädt …'));
+      try {
+        const snap = await rpc('admin_inventory', { p_token: state.token, p_uuid: uuid });
+        if (state.adminInventory !== uuid) return;
+        body.replaceChildren(snap ? h('div', { style: 'margin-top:14px' }, h('div', { class: 'row' }, head(snap.uuid, 24), h('b', {}, snap.name)), inventoryView(snap))
+          : h('p', { class: 'muted small', style: 'margin-top:14px' }, 'Für diesen Spieler ist noch kein Inventar gespeichert.'));
+      } catch (error) {
+        handleError(error);
+      }
+    };
+    select.addEventListener('change', () => load(select.value));
+    if (state.adminInventory) load(state.adminInventory);
+    return h('div', { class: 'card thick', id: 'admin-inventory', style: 'margin-top:16px' },
+      h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px' }, h('p', { class: 'eyebrow' }, 'Inventare'), h('span', { class: 'spacer' }), select,
+        h('button', { class: 'btn small ghost', onclick: () => { select.value = ''; load(null); } }, 'Schließen')),
+      h('p', { class: 'faint small', style: 'margin-top:6px' },
+        `Inventar, Endertruhe, Shulkerkisten und Rucksäcke von ${list.length} Spielern. Wer online ist, wird jede Minute aktualisiert, sonst gilt der Stand beim Verlassen. Solange eins offen ist, lädt die Seite nicht von selbst neu.`),
+      body);
   }
 
   const COMMAND_STATUS = { pending: ['Wartet', 'caution'], running: ['Läuft', 'caution'], done: ['Fertig', 'ok'], failed: ['Fehler', 'alert'] };
