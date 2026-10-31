@@ -7,6 +7,9 @@ window.PORTAL_CONFIG = {
   supabaseUrl: 'https://papgusumycsjeafaqqtv.supabase.co',
   supabaseKey: 'sb_publishable_Yjqwmm2TrQ0g3gvzZ6iI_g_WRzx6dm1',
 
+  // Adresse des Servers im Heimnetz (der Router kann die oeffentliche IP von drinnen nicht erreichen)
+  lanHost: '10.10.70.151',
+
   // gleicher Wortlaut wie im Regel-Bildschirm beim Beitreten (codeofconduct/de_de.txt auf dem Server)
   rules: [
     { title: 'Kämpfen und Griefen', text: 'Töten und Griefen sind erlaubt, aber nur mit triftigem Grund. Wer ohne triftigen Grund tötet oder Bauwerke zerstört, muss verlorene Items selbst ersetzen und Zerstörtes selbst wieder aufbauen.' },

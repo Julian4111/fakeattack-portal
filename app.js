@@ -491,12 +491,16 @@
       h('p', { class: 'faint small', style: 'margin-top:14px' }, [s.version ? `Minecraft ${s.version}` : null, s.updated_at ? `Stand ${formatDate(s.updated_at)}` : null].filter(Boolean).join(' · ')));
 
     const address = s.address && s.game_port ? `${s.address}:${s.game_port}` : null;
+    const lanHost = CONFIG.lanHost || 'localhost';
+    const lanAddress = s.game_port ? `${lanHost}:${s.game_port}` : null;
     const addressCard = h('div', { class: 'card address-card' },
       h('p', { class: 'eyebrow' }, 'Server-Adresse'),
       address
         ? h('div', { class: 'address' }, h('code', {}, address), h('button', { class: 'btn', onclick: () => copy(address) }, 'Kopieren'))
         : h('p', { class: 'muted', style: 'margin-top:10px' }, 'Erscheint, sobald der Server online ist.'),
-      h('p', { class: 'faint small', style: 'margin-top:12px' }, 'Bitte nicht öffentlich teilen.'));
+      lanAddress ? h('p', { class: 'faint small', style: 'margin-top:12px' }, 'Im selben Heimnetz wie der Server: ',
+        h('a', { href: '#', onclick: (event) => { event.preventDefault(); copy(lanAddress); } }, lanAddress)) : null,
+      h('p', { class: 'faint small', style: 'margin-top:6px' }, 'Bitte nicht öffentlich teilen.'));
 
     const mapUrl = s.address && s.map_port ? `http://${s.address}:${s.map_port}/` : null;
     const mapCard = h('div', { class: 'card map-card' },
@@ -506,7 +510,7 @@
         ? h('div', { class: 'stack' },
           h('a', { class: 'btn primary', href: mapUrl, target: '_blank', rel: 'noopener' }, icon('map'), 'Karte öffnen'),
           h('p', { class: 'faint small' }, 'Im selben Heimnetz wie der Server? ',
-            h('a', { href: `http://localhost:${s.map_port}/`, target: '_blank', rel: 'noopener' }, `localhost:${s.map_port}`)))
+            h('a', { href: `http://${lanHost}:${s.map_port}/`, target: '_blank', rel: 'noopener' }, `${lanHost}:${s.map_port}`)))
         : h('p', { class: 'faint small' }, 'Nur erreichbar, wenn der Server online ist.'));
 
     return h('div', {},
