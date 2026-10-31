@@ -520,6 +520,7 @@ details.card[open] > summary::after { content: "\2212"; }
 .notice.ok { background: var(--ok-soft); } .notice.ok i { background: var(--ok); }
 .notice.alert { background: var(--alert-soft); } .notice.alert i { background: var(--alert); }
 .notice.guide { background: var(--guide-soft); } .notice.guide i { background: var(--guide); }
+.escrow-progress { display: block; margin-top: 6px; font-weight: 600; color: var(--text); }
 
 /* ---------- Admin-Panel ---------- */
 

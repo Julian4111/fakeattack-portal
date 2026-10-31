@@ -558,6 +558,7 @@
   const LISTING_STATUS = { open: 'Offen', reserved: 'Reserviert', done: 'Erledigt', closed: 'Zurückgezogen' };
   const MARKET_CATEGORIES = window.MARKET_CATEGORIES || [['sonstiges', 'Sonstiges']];
   const CATEGORY_NAMES = Object.fromEntries(MARKET_CATEGORIES);
+  const ITEM_IDS = window.MARKET_ITEM_IDS || {};
   const ITEM_CATEGORY = new Map();
   for (const [cat, names] of Object.entries(window.MARKET_ITEMS || {})) {
     for (const name of names) ITEM_CATEGORY.set(name.toLowerCase(), { cat, name });
@@ -676,10 +677,13 @@
       onsubmit: (event) => {
         event.preventDefault();
         act(submit, async () => {
+          // a name from the item list tells the trade chest in the game which item to count
+          const known = ITEM_CATEGORY.get(title.value.trim().toLowerCase());
           await rpc('market_create', {
             p_token: state.token, p_kind: kind, p_title: title.value, p_category: category.value,
             p_quantity: Number(quantity.value), p_price: price.input.value === '' ? null : Number(price.input.value),
-            p_price_type: priceType, p_urgency: urgency ? Number(urgency.value) : 0, p_description: description.value
+            p_price_type: priceType, p_urgency: urgency ? Number(urgency.value) : 0, p_description: description.value,
+            p_item: known ? ITEM_IDS[known.name] || null : null
           });
           m.formOpen = false;
         }, sell ? 'Dein Angebot ist online.' : 'Deine Suchanfrage ist online.');
@@ -811,14 +815,40 @@
   }
 
   function marketDeals(mine) {
-    const active = mine.deals.filter((d) => d.status === 'open' || d.status === 'agreed');
-    const past = mine.deals.filter((d) => d.status !== 'open' && d.status !== 'agreed');
+    // a secured deal stays up top until both sides have taken their things out of the trade chest
+    const running = (d) => d.status === 'open' || d.status === 'agreed' || !!(d.escrow && d.escrow.inside);
+    const active = mine.deals.filter(running);
+    const past = mine.deals.filter((d) => !running(d));
     return h('div', {},
       h('p', { class: 'eyebrow section-label' }, 'Laufende Deals'),
       active.length ? active.map(dealCard) : h('div', { class: 'empty' }, 'Gerade keine laufenden Deals. Schau bei „Zu verkaufen“ oder „Gesucht“ vorbei.'),
       h('p', { class: 'eyebrow section-label' }, 'Deine Einträge'),
       mine.listings.length ? h('div', { class: 'card thick my-listings' }, mine.listings.map(myListingRow)) : h('div', { class: 'empty' }, 'Du hast noch nichts eingestellt.'),
       past.length ? [h('p', { class: 'eyebrow section-label' }, 'Beendet (letzte 14 Tage)'), ...past.map(dealCard)] : null);
+  }
+
+  // the trade chest in the game (/handel); the server reports here how full it is
+  function escrowNotice(d) {
+    const e = d.escrow || {};
+    const giveGoods = (d.listing.kind === 'sell') === d.i_own_listing;
+    if (e.locked) {
+      return h('div', { class: 'notice ok' }, h('i'), h('span', {}, h('b', {}, 'Gesichert! '),
+        `Ware und Bezahlung liegen in der Handelstruhe. Hol dir im Spiel mit /handel ${giveGoods ? 'die Diamanten' : 'die Ware'} ab.`));
+    }
+    if (d.status !== 'agreed') {
+      return h('div', { class: 'notice caution' }, h('i'), h('span', {}, h('b', {}, 'Handelstruhe: '),
+        'Der Deal ist abgebrochen. Was du hineingelegt hast, nimmst du im Spiel mit /handel wieder raus.'));
+    }
+    const goods = e.auto ? `${e.goods} von ${e.goods_needed}`
+      : e.confirmed ? 'freigegeben' : e.goods_stacks ? `${e.goods_stacks} Stapel, wartet auf Freigabe` : 'noch leer';
+    const check = d.listing.item ? 'Die Ware zählt der Server automatisch.'
+      : giveGoods ? `${d.partner} schaut sich deine Ware an und gibt sie frei.` : 'Du schaust dir die Ware an und gibst sie frei.';
+    return h('div', { class: 'notice ok' }, h('i'), h('span', {},
+      h('b', {}, `Deal über ${priceText(d.price)}. `),
+      `Übergabe im Spiel mit /handel: Du legst ${giveGoods ? 'die Ware' : 'die Diamanten'} in die Handelstruhe. `,
+      'Erst wenn beide Seiten vollständig sind, kann jeder die andere Seite nehmen. So kann niemand betrügen. ', check,
+      e.inside ? h('span', { class: 'escrow-progress' }, `Ware: ${goods} · Bezahlung: ${e.paid || 0} von ${diamonds(d.price)}`) : null,
+      e.too_big ? h('span', { class: 'escrow-progress' }, 'Zu groß für eine Handelstruhe: Tauscht direkt und bestätigt dann die Übergabe.') : null));
   }
 
   function dealRole(d) {
@@ -836,6 +866,7 @@
       h('div', { class: 'deal-title' }, h('h3', {}, amount(d.listing.quantity, d.listing.title)), h('p', { class: 'muted small' }, dealRole(d))),
       myTurn ? h('span', { class: 'badge caution' }, 'Du bist dran') : null,
       d.status === 'agreed' ? h('span', { class: 'badge ok' }, 'Übergabe offen') : null,
+      d.escrow && d.escrow.locked && d.escrow.inside ? h('span', { class: 'badge ok' }, 'Abholen') : null,
       active ? null : h('span', { class: 'badge' + (d.status === 'done' ? ' ok' : '') }, DEAL_STATUS[d.status]));
 
     // Verhandlung (gold) -> Deal -> Uebergeben (smaragd)
@@ -885,13 +916,12 @@
         }, d.i_own_listing ? 'Ablehnen' : 'Zurückziehen')));
     }
     if (d.status === 'agreed') {
-      controls.push(h('div', { class: 'notice ok' }, h('i'),
-        h('span', {}, h('b', {}, `Deal über ${priceText(d.price)}. `), 'Trefft euch im Spiel, tauscht Items gegen Diamanten und bestätigt danach hier die Übergabe.')));
+      controls.push(escrowNotice(d));
       controls.push(h('div', { class: 'deal-actions' },
-        h('button', {
-          class: 'btn emerald',
+        d.escrow && d.escrow.inside ? null : h('button', {
+          class: 'btn emerald', title: 'Nur wenn ihr ohne Handelstruhe direkt im Spiel getauscht habt',
           onclick: (event) => {
-            if (confirm('Hat die Übergabe im Spiel geklappt? Danach ist der Deal erledigt.')) act(event.currentTarget, call('market_done'), 'Erledigt. Danke fürs Handeln!');
+            if (confirm('Habt ihr direkt im Spiel getauscht, ohne Handelstruhe? Danach ist der Deal erledigt.')) act(event.currentTarget, call('market_done'), 'Erledigt. Danke fürs Handeln!');
           }
         }, icon('check'), 'Übergabe bestätigen'),
         h('span', { class: 'spacer' }),
@@ -902,6 +932,7 @@
           }
         }, 'Deal abbrechen')));
     }
+    if (d.status !== 'agreed' && d.escrow && d.escrow.inside) controls.push(escrowNotice(d));
     if (active) {
       const text = h('input', { maxlength: '500', placeholder: `Nachricht an ${d.partner} …`, 'aria-label': 'Nachricht' });
       const sendButton = h('button', { class: 'btn', type: 'submit' }, 'Senden');
@@ -1500,9 +1531,9 @@
       task: 'Kauf Steves Elytra: Klick auf „Kaufen“ und bestätige.',
       done: (e) => e.type === 'market_buy' && e.listingId === 9001 }),
     inBoerse({ market: 'deals', target: '[data-deal-listing="9001"]', title: 'Der Deal steht',
-      text: 'Grün heißt: Deal. Jetzt trefft ihr euch im Spiel, du gibst die Diamanten und Steve die Elytra. Unten könnt ihr euch schreiben, zum Beispiel wo ihr euch trefft.' }),
+      text: 'Grün heißt: Deal. Getauscht wird im Spiel in der Handelstruhe: Gib /handel ein, du legst die Diamanten rein und Steve die Elytra. Erst wenn beides drin ist, nimmt sich jeder die andere Seite. So kann niemand betrügen. Unten könnt ihr euch schreiben.' }),
     inBoerse({ market: 'deals', target: '[data-deal-listing="9001"] .deal-actions .btn.emerald', title: 'Übergabe bestätigen',
-      text: 'Wenn alles getauscht ist, bestätigt einer von euch die Übergabe. Dann ist der Deal erledigt.',
+      text: 'Mit der Handelstruhe ist der Deal danach von selbst erledigt. Habt ihr direkt im Spiel getauscht, bestätigt einer von euch hier die Übergabe.',
       task: 'Klick auf „Übergabe bestätigen“.',
       done: (e) => e.type === 'market_done' && e.listingId === 9001 }),
     inBoerse({ market: 'sell', target: '[data-listing="9002"]', title: 'Verhandeln mit VB',
@@ -1535,7 +1566,7 @@
       text: 'Steve schaut sich dein Angebot an.',
       wait: true, done: (e) => e.type === 'bot' && e.listingId === 9011, skipIf: () => answered(9011) }),
     inBoerse({ market: 'deals', target: '[data-deal-listing="9011"]', title: 'Auftrag angenommen',
-      text: 'Steve ist einverstanden. Jetzt bringst du ihm die Enderperlen im Spiel und bekommst die Diamanten. Danach bestätigt ihr die Übergabe, genau wie vorhin.' }),
+      text: 'Steve ist einverstanden. Jetzt legst du die Enderperlen in die Handelstruhe (/handel) und Steve die Diamanten. Sobald beides drin ist, nimmt sich jeder die andere Seite.' }),
     inBoerse({ market: 'sell', target: '.page-head .btn.diamond', title: 'Selbst verkaufen',
       text: 'Zum Schluss verkaufst du selbst etwas. Bei Festpreis bekommt es der Erste, der kauft. Bei VB schicken dir Käufer Preisvorschläge.',
       task: 'Klick auf „Etwas verkaufen“ und stell ein Angebot ein.',

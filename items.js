@@ -36,3 +36,43 @@ window.MARKET_ITEMS = {
   spezial: ["Totem der Unsterblichkeit", "Leuchtfeuer", "Enderperle", "Zauberbuch", "Drachenei", "Netherstern", "Feuerwerksraketen (64)", "Schulkerkiste", "Endertruhe", "Amboss", "Zaubertisch", "Braustand", "Wither-Schädel", "Herz des Meeres", "Beacon-Basis (Eisen)"],
   dienste: ["Haus bauen", "Farm bauen", "Mob-Farm bauen", "XP-Farm bauen", "Begleitschutz", "Abbau-Stunde (Minen)", "Redstone-Schaltung", "Dungeon-Run"]
 };
+
+// Minecraft-Item zu einem Namen aus der Liste: Die Handelstruhe im Spiel (/handel) zaehlt diese Ware selbst.
+// Was fehlt (Sets, Traenke, Verzauberungen, Tiere, Dienste, Holz- und Farbsorten), prueft der Kaeufer mit eigenen Augen.
+window.MARKET_ITEM_IDS = {
+  "Diamant": "diamond", "Smaragd": "emerald", "Eisenbarren": "iron_ingot", "Goldbarren": "gold_ingot",
+  "Netherite-Barren": "netherite_ingot", "Kupferbarren": "copper_ingot", "Lapislazuli": "lapis_lazuli",
+  "Redstone-Staub": "redstone", "Kohle": "coal", "Netherquarz": "quartz", "Antiker Schutt": "ancient_debris",
+  "Netherite-Schrott": "netherite_scrap", "Amethyst": "amethyst_shard", "Eisenblock": "iron_block", "Goldblock": "gold_block",
+  "Diamantblock": "diamond_block", "Smaragdblock": "emerald_block", "Netheriteblock": "netherite_block",
+  "Stein": "stone", "Glas": "glass", "Obsidian": "obsidian", "Bruchstein": "cobblestone", "Sand": "sand", "Kies": "gravel",
+  "Netherrack": "netherrack", "Endstein": "end_stone", "Prismarin": "prismarine", "Schleimball": "slime_ball",
+  "Honigwabe": "honeycomb", "Knochen": "bone", "Fäden": "string", "Papier": "paper", "Bücher": "book",
+  "Leuchtstein": "glowstone", "Seelaterne": "soul_lantern",
+  "Netherite-Brustplatte": "netherite_chestplate", "Netherite-Helm": "netherite_helmet", "Diamant-Brustplatte": "diamond_chestplate",
+  "Schild": "shield", "Elytra": "elytra", "Netherite-Hose": "netherite_leggings", "Netherite-Stiefel": "netherite_boots",
+  "Diamant-Helm": "diamond_helmet", "Diamant-Hose": "diamond_leggings", "Diamant-Stiefel": "diamond_boots",
+  "Schildkrötenpanzer": "turtle_helmet",
+  "Netherite-Spitzhacke": "netherite_pickaxe", "Diamant-Spitzhacke": "diamond_pickaxe", "Diamant-Axt": "diamond_axe",
+  "Angel": "fishing_rod", "Schere": "shears", "Feuerzeug": "flint_and_steel", "Netherite-Axt": "netherite_axe",
+  "Netherite-Schaufel": "netherite_shovel", "Netherite-Hacke": "netherite_hoe", "Eimer": "bucket", "Kompass": "compass",
+  "Uhr": "clock", "Laterne": "lantern", "Eisen-Spitzhacke": "iron_pickaxe",
+  "Netherite-Schwert": "netherite_sword", "Diamant-Schwert": "diamond_sword", "Bogen": "bow", "Armbrust": "crossbow",
+  "Dreizack": "trident", "Streitkolben": "mace", "Spektralpfeile": "spectral_arrow", "TNT": "tnt", "Eisenschwert": "iron_sword",
+  "Netherite-Axt (Kampf)": "netherite_axe",
+  "Goldene Äpfel": "golden_apple", "Steak": "cooked_beef", "Brot": "bread", "Kuchen": "cake", "Goldene Karotte": "golden_carrot",
+  "Zauberapfel (OP-Goldapfel)": "enchanted_golden_apple", "Kekse": "cookie", "Kürbiskuchen": "pumpkin_pie",
+  "Pilzsuppe": "mushroom_stew", "Kartoffeln (gebacken)": "baked_potato", "Melonenscheibe": "melon_slice",
+  "Süßbeeren": "sweet_berries", "Honigflasche": "honey_bottle", "Äpfel": "apple", "Karotten": "carrot", "Kürbis": "pumpkin",
+  "Ofenkartoffeln": "baked_potato",
+  "Kolben": "piston", "Beobachter": "observer", "Trichter": "hopper", "Werfer": "dispenser", "Repeater": "repeater",
+  "Komparator": "comparator", "Hebel": "lever", "Redstone-Lampe": "redstone_lamp", "Notenblock": "note_block",
+  "Plattenspieler": "jukebox", "Zielblock": "target", "Schleimblock": "slime_block", "Honigblock": "honey_block",
+  "Weizen": "wheat", "Samen": "wheat_seeds", "Zuckerrohr": "sugar_cane", "Kakaobohnen": "cocoa_beans", "Bambus": "bamboo",
+  "Kaktus": "cactus", "Melone": "melon",
+  "Gemälde": "painting", "Bücherregal": "bookshelf", "Truhe": "chest", "Blumentopf": "flower_pot",
+  "Lore": "minecart", "Sattel": "saddle", "Angel am Stock": "carrot_on_a_stick",
+  "Totem der Unsterblichkeit": "totem_of_undying", "Leuchtfeuer": "beacon", "Enderperle": "ender_pearl", "Drachenei": "dragon_egg",
+  "Netherstern": "nether_star", "Endertruhe": "ender_chest", "Amboss": "anvil", "Zaubertisch": "enchanting_table",
+  "Braustand": "brewing_stand", "Wither-Schädel": "wither_skeleton_skull", "Herz des Meeres": "heart_of_the_sea"
+};
