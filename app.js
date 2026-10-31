@@ -1545,37 +1545,90 @@
     return (days ? `${days} d ` : '') + (days || hours ? `${hours} h ` : '') + `${minutes % 60} min`;
   }
 
+  // 90s, 5m, 1h30m or plain minutes, as ServerCountdown reads them
+  const COUNTDOWN_DURATION = /^(\d+(h|m|s))+$|^\d+$/i;
+
+  function durationSeconds(text) {
+    if (/^\d+$/.test(text)) return Number(text) * 60;
+    let total = 0;
+    for (const [, amount, unit] of text.toLowerCase().matchAll(/(\d+)(h|m|s)/g)) total += Number(amount) * { h: 3600, m: 60, s: 1 }[unit];
+    return total;
+  }
+
+  const nextFullHour = (plus) => `${String((new Date().getHours() + 1 + (plus || 0)) % 24).padStart(2, '0')}:00`;
+
+  // a time as a duration ("in 5m") or a clock time ("um 18:30"); the downtime can also stay open
+  function timeField(label, options) {
+    let mode = options.modes[0];
+    const duration = h('input', { value: options.duration, placeholder: options.placeholder, 'aria-label': `${label}: Dauer` });
+    const clock = h('input', { type: 'time', value: options.clock, 'aria-label': `${label}: Uhrzeit` });
+    const box = h('div', { class: 'time-input' });
+    // switching counts as editing, so the page does not refresh it away
+    const buttons = options.modes.map((key) => h('button', { type: 'button', 'data-mode': key, onclick: () => { mode = key; state.dirty = true; sync(); } }, options.labels[key]));
+    const sync = () => {
+      for (const button of buttons) button.className = button.dataset.mode === mode ? 'on' : '';
+      box.replaceChildren(mode === 'dauer' ? duration : mode === 'uhrzeit' ? clock : h('p', { class: 'faint small' }, options.openText));
+    };
+    sync();
+    return {
+      el: h('div', {}, h('label', {}, label), h('div', { class: 'filters time-modes', role: 'group', 'aria-label': label }, buttons), box),
+      mode: () => mode,
+      // the part of the command: "5m", "18:30", "" when left open, null when it is not valid
+      read: () => {
+        if (mode === 'offen') return '';
+        if (mode === 'uhrzeit') return /^\d{2}:\d{2}$/.test(clock.value) ? clock.value : null;
+        const value = duration.value.replace(/\s+/g, '');
+        return COUNTDOWN_DURATION.test(value) && durationSeconds(value) > 0 && durationSeconds(value) <= 86400 ? value : null;
+      }
+    };
+  }
+
   function adminCountdownCard() {
     const kind = h('select', { 'aria-label': 'Art' }, h('option', { value: 'restartin' }, 'Neustart'), h('option', { value: 'shutdown' }, 'Stopp'));
-    const when = h('input', { value: '5m', 'aria-label': 'Wann', placeholder: '5m' });
-    const down = h('input', { value: '1m', 'aria-label': 'Wie lange offline', placeholder: '1m' });
+    const when = timeField('Wann', {
+      modes: ['dauer', 'uhrzeit'], labels: { dauer: 'In …', uhrzeit: 'Um …' }, duration: '5m', placeholder: 'z. B. 5m, 2h', clock: nextFullHour()
+    });
+    const down = timeField('Wie lange offline', {
+      modes: ['dauer', 'uhrzeit', 'offen'], labels: { dauer: 'Ca. …', uhrzeit: 'Bis …', offen: 'Offen' },
+      duration: '1m', placeholder: 'z. B. 10m, 2h', clock: nextFullHour(1), openText: 'Wird in den Ansagen nicht genannt.'
+    });
     const reason = h('input', { maxlength: '120', placeholder: 'Grund, z. B. Plugin-Update', 'aria-label': 'Grund' });
     const start = h('button', { class: 'btn primary', type: 'submit' }, 'Countdown starten');
     const message = h('input', { maxlength: '200', placeholder: 'Nachricht an alle Spieler', 'aria-label': 'Nachricht an alle' });
     const send = h('button', { class: 'btn', type: 'submit' }, 'Senden');
-    const durations = /^(\d+\s*(h|m|s)\s*)+$|^\d+$/i;
     return h('div', { class: 'card thick' },
       h('p', { class: 'eyebrow' }, 'Neustart und Stopp'),
       h('form', {
         class: 'admin-countdown',
         onsubmit: (event) => {
           event.preventDefault();
-          if (!durations.test(when.value.trim()) || (down.value.trim() && !durations.test(down.value.trim()))) {
-            toast('Zeiten bitte wie 90s, 5m, 1h oder 1h30m angeben.', 'error');
+          const at = when.read();
+          const back = down.read();
+          if (at == null) {
+            toast('Wann: eine Dauer wie 5m oder 2h (höchstens 24h) oder eine Uhrzeit.', 'error');
             return;
           }
-          const command = [kind.value, when.value.trim(), down.value.trim(), reason.value.trim()].filter(Boolean).join(' ');
-          if (confirm(`${kind.value === 'shutdown' ? 'Server stoppen' : 'Server neu starten'} in ${when.value.trim()}?`)) {
-            sendCommand(start, command, 'Countdown gestartet.');
+          if (back == null) {
+            toast('Wie lange offline: eine Dauer wie 10m oder 2h, eine Uhrzeit oder „Offen“.', 'error');
+            return;
+          }
+          const command = [kind.value, at, back, reason.value.trim()].filter(Boolean).join(' ');
+          const what = kind.value === 'shutdown' ? 'Server stoppen' : 'Server neu starten';
+          if (confirm(`${what} ${when.mode() === 'uhrzeit' ? `um ${at} Uhr` : `in ${at}`}?`)) {
+            sendCommand(start, command, 'Gesendet. Die Antwort steht unten in der Konsole.');
           }
         }
       },
       h('div', {}, h('label', {}, 'Art'), kind),
-      h('div', {}, h('label', {}, 'Wann'), when),
-      h('div', {}, h('label', {}, 'Wie lange offline'), down),
-      h('div', { class: 'span-2' }, h('label', {}, 'Grund'), reason),
-      h('div', { class: 'row span-2' }, start,
-        h('button', { class: 'btn danger', type: 'button', onclick: (event) => sendCommand(event.currentTarget, 'countdown cancel', 'Abbrechen gesendet.') }, 'Countdown abbrechen'))),
+      when.el,
+      down.el,
+      h('div', {}, h('label', {}, 'Grund'), reason),
+      h('p', { class: 'faint small span-2' }, 'Bis eine Stunde voraus startet der Countdown sofort. Später wird es geplant (bis 24 Stunden), ' +
+        'der Countdown beginnt dann eine Stunde vorher und übersteht auch einen Neustart.'),
+      h('div', { class: 'row span-2', style: 'flex-wrap:wrap;gap:8px' }, start,
+        h('button', { class: 'btn danger', type: 'button', onclick: (event) => sendCommand(event.currentTarget, 'countdown cancel', 'Abbrechen gesendet.') },
+          'Countdown abbrechen'),
+        h('button', { class: 'btn small ghost', type: 'button', onclick: (event) => sendCommand(event.currentTarget, 'countdown status') }, 'Was ist geplant?'))),
       h('form', {
         class: 'admin-inline', style: 'margin-top:16px',
         onsubmit: (event) => {
