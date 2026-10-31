@@ -436,12 +436,15 @@ input[type="datetime-local"] { color-scheme: dark; }
 
 /* Bestenliste und eigene Statistik: jede Kategorie hat ihre Farbe (--tone, gesetzt im Element) fuer Balken, Punkt und
    Hintergrund des Ersten; die Zahlen bleiben weiss. Die acht Farben sind in ihrer festen Reihenfolge (app.js,
-   STAT_CATEGORIES) gegen den dunklen Hintergrund und fuer Farbsehschwaeche geprueft. */
+   STAT_CATEGORIES) gegen den dunklen Hintergrund und fuer Farbsehschwaeche geprueft; die neunte Kategorie (Distanz)
+   bekommt das neutrale Grau. */
 .board { margin-top: 16px; display: grid; gap: 16px; }
 .board > .section-label { margin: 0; }
 .board-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
-.board-tile { --tone: #8A9099; position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
-.board-tile::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--tone); }
+.board-tile { --tone: #8A9099; position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+.board-tile::before, .board-dialog-box::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--tone); }
+/* "Mehr" sits at the bottom of the tile, the same height in every tile of a row */
+.board-more { align-self: flex-start; margin: auto 0 0 -12px; }
 .board-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .board-title i { width: 10px; height: 10px; border-radius: 2px; background: var(--tone); flex: none; }
 .board-first { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-well);
@@ -458,6 +461,17 @@ input[type="datetime-local"] { color-scheme: dark; }
 .board-rest li::before { content: counter(rank) "."; width: 18px; flex: none; color: var(--text-3); font: 600 12px var(--mono); }
 .board-rest img { width: 18px; height: 18px; border-radius: 3px; flex: none; }
 .board-small { font: 500 13px var(--mono); font-stretch: 85%; color: var(--text-2); white-space: nowrap; }
+/* "Mehr": alle Spieler einer Kategorie in einem Fenster ueber der Seite */
+.board-dialog { width: min(440px, calc(100vw - 32px)); max-width: none; max-height: none; padding: 0; border: 0;
+  background: transparent; color: var(--text); overflow: visible; }
+.board-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.board-dialog-box { --tone: #8A9099; position: relative; overflow: hidden; margin: 0; display: grid; grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px; max-height: min(640px, calc(100dvh - 48px)); box-shadow: var(--shadow); }
+.board-list { list-style: none; margin: 0 -8px; padding: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 2px; align-content: start; }
+.board-list li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; border-radius: var(--r-ctl); font-size: 14px; }
+.board-list li.me { background: color-mix(in srgb, var(--tone) 18%, transparent); box-shadow: inset 3px 0 0 var(--tone); }
+.board-list img { width: 20px; height: 20px; border-radius: 3px; flex: none; }
+.board-rank { width: 30px; flex: none; text-align: right; color: var(--text-3); font: 600 12px var(--mono); }
 /* eine Zahl je Kategorie: Server gesamt und eigene Werte im Profil */
 .board-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 12px; }
 .board-figure { display: grid; gap: 4px; align-content: start; min-width: 0; padding: 10px 12px; border-radius: var(--r-well);

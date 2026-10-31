@@ -397,7 +397,7 @@
   function idle() {
     return document.visibilityState === 'visible' && !state.dirty && tour.index < 0 && !state.practice && !state.market.formOpen
       && !(currentPage() === 'admin' && state.adminInventory)
-      && !document.querySelector('#app input:focus, #app textarea:focus, #app select:focus, #app details[open], #app .slot.on');
+      && !document.querySelector('#app input:focus, #app textarea:focus, #app select:focus, #app details[open], #app .slot.on, #app dialog[open]');
   }
 
   function autoRefresh(page) {
@@ -621,22 +621,39 @@
     return `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: hours < 10 ? 1 : 0 }).format(hours)} Std.`;
   }
 
+  // distance from metres (1 block = 1 m): "850 m", "4,2 km", "263 km"
+  function distance(metres) {
+    if (metres < 1000) return `${number(metres)} m`;
+    const km = metres / 1000;
+    return `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: km < 10 ? 1 : 0 }).format(km)} km`;
+  }
+
   // value and unit apart, so the number can be big and the unit small
-  const splitTime = (minutes) => { const text = playTime(minutes); const cut = text.lastIndexOf(' '); return [text.slice(0, cut), text.slice(cut + 1)]; };
+  const splitUnit = (text) => { const cut = text.lastIndexOf(' '); return [text.slice(0, cut), text.slice(cut + 1)]; };
+  const splitTime = (minutes) => splitUnit(playTime(minutes));
+  const splitDistance = (metres) => splitUnit(distance(metres));
   const counted = (one, many) => (n) => [number(n), n === 1 ? one : many];
 
-  // The eight categories, each with its own colour (always shown with its title). Colours in this fixed order are
+  // The categories, each with its own colour (always shown with its title). Colours in this fixed order are
   // checked against the dark background and for colour blindness; keep the order when adding or moving one.
+  // The palette has eight colours: a ninth category gets the neutral grey, never a made-up colour.
+  // mixedUnits: the unit changes with the value (Min./Std., m/km), so short lists show it too.
   const STAT_CATEGORIES = [
-    { key: 'minutes', label: 'Spielzeit', top: 'Meiste Spielzeit', color: '#3987e5', format: splitTime },
+    { key: 'minutes', label: 'Spielzeit', top: 'Meiste Spielzeit', color: '#3987e5', format: splitTime, mixedUnits: true },
     { key: 'deaths', label: 'Tode', top: 'Meiste Tode', color: '#d95926', format: counted('Tod', 'Tode') },
     { key: 'monster_kills', label: 'Monsterkills', top: 'Meiste Monsterkills', color: '#199e70', format: counted('Monster', 'Monster') },
     { key: 'mob_kills', label: 'Mobkills (alle)', top: 'Meiste Mobkills', color: '#c98500', format: counted('Mob', 'Mobs') },
     { key: 'player_kills', label: 'Spielerkills', top: 'Meiste Spielerkills', color: '#d55181', format: counted('Spieler', 'Spieler') },
     { key: 'mined', label: 'Blöcke abgebaut', top: 'Meiste Blöcke abgebaut', color: '#008300', format: counted('Block', 'Blöcke') },
     { key: 'placed', label: 'Blöcke platziert', top: 'Meiste Blöcke platziert', color: '#9085e9', format: counted('Block', 'Blöcke') },
-    { key: 'tnt', label: 'TNT gesprengt', top: 'Meistes TNT gesprengt', color: '#e66767', format: counted('TNT', 'TNT') }
+    { key: 'tnt', label: 'TNT gesprengt', top: 'Meistes TNT gesprengt', color: '#e66767', format: counted('TNT', 'TNT') },
+    { key: 'distance', label: 'Distanz gereist', top: 'Am weitesten gereist', color: '#8A9099', format: splitDistance, mixedUnits: true }
   ];
+
+  const smallValue = (cat, value) => {
+    const [shown, unit] = cat.format(value);
+    return h('span', { class: 'board-small', title: `${shown} ${unit}` }, cat.mixedUnits ? `${shown} ${unit}` : shown);
+  };
 
   const boardValue = ([value, unit], extra) => h('b', { class: 'board-value' + (extra || '') }, value, h('small', {}, ` ${unit}`));
   const toned = (cat, cls, ...children) => h('div', { class: cls, style: `--tone:${cat.color}` }, ...children);
@@ -659,16 +676,43 @@
           ? h('div', { class: 'board-first' }, head(first.uuid, 40),
             h('div', {}, boardValue(cat.format(first.value)), h('span', { class: 'board-name' }, first.name)))
           : h('p', { class: 'faint small' }, cat.key === 'tnt' ? 'Wird ab jetzt gezählt.' : 'Noch keine Werte.'),
-        rest.length ? h('ol', { class: 'board-rest' }, rest.map((entry) => {
-          const [value, unit] = cat.format(entry.value);
-          return h('li', {}, head(entry.uuid, 18), h('span', { class: 'board-name' }, entry.name), h('span', { class: 'spacer' }),
-            h('span', { class: 'board-small', title: `${value} ${unit}` }, cat.key === 'minutes' ? `${value} ${unit}` : value));
-        })) : null);
+        rest.length ? h('ol', { class: 'board-rest' }, rest.map((entry) =>
+          h('li', {}, head(entry.uuid, 18), h('span', { class: 'board-name' }, entry.name), h('span', { class: 'spacer' }),
+            smallValue(cat, entry.value)))) : null,
+        first ? h('button', { class: 'btn small ghost board-more', onclick: () => showStatList(cat) }, 'Mehr') : null);
     });
     return h('div', { class: 'board' },
       h('p', { class: 'eyebrow section-label' }, 'Bestenliste'),
       server,
       h('div', { class: 'grid board-grid' }, tiles));
+  }
+
+  // "Mehr": every player of one category, best first, your own row marked. Lives in #app, so the page waits
+  // with refreshing while it is open and it goes away with the page.
+  async function showStatList(cat) {
+    const list = h('ol', { class: 'board-list' }, h('li', { class: 'faint small' }, 'Lädt …'));
+    const dialog = h('dialog', { class: 'board-dialog', 'aria-label': cat.top,
+      onclose: () => dialog.remove(),
+      // a click outside the box lands on the dialog itself
+      onclick: (event) => { if (event.target === dialog) dialog.close(); } },
+      toned(cat, 'card thick board-dialog-box',
+        h('div', { class: 'row' }, h('p', { class: 'eyebrow board-title' }, h('i'), cat.top), h('span', { class: 'spacer' }),
+          h('button', { class: 'coach-close', 'aria-label': 'Schließen', onclick: () => dialog.close() }, icon('close'))),
+        list));
+    app.append(dialog);
+    dialog.showModal();
+    try {
+      const players = await rpc('get_stat_list', { p_token: state.token, p_key: cat.key });
+      list.replaceChildren(...players.map((entry) =>
+        h('li', { class: entry.uuid === state.me.uuid ? 'me' : null },
+          h('span', { class: 'board-rank' }, entry.rank ? `${entry.rank}.` : '–'), head(entry.uuid, 20),
+          h('span', { class: 'board-name' }, entry.name), h('span', { class: 'spacer' }),
+          entry.value ? smallValue(cat, entry.value) : h('span', { class: 'board-small faint' }, '–'))));
+      if (!players.length) list.replaceChildren(h('li', { class: 'faint small' }, 'Noch keine Werte.'));
+    } catch (error) {
+      dialog.close();
+      handleError(error);
+    }
   }
 
   // the profile: your own values and your place in every category
