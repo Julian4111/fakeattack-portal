@@ -521,6 +521,32 @@ details.card[open] > summary::after { content: "\2212"; }
 .notice.alert { background: var(--alert-soft); } .notice.alert i { background: var(--alert); }
 .notice.guide { background: var(--guide-soft); } .notice.guide i { background: var(--guide); }
 
+/* ---------- Admin-Panel ---------- */
+
+.admin-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+.admin-stats > div { display: grid; gap: 4px; }
+.stat { font: 600 28px var(--mono); font-stretch: 85%; letter-spacing: -.5px; }
+.stat.ok { color: var(--ok); }
+.stat.caution { color: var(--caution); }
+.stat.alert { color: var(--alert); }
+.meter { height: 6px; margin-top: 12px; border-radius: 3px; background: var(--fill-2); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--set); }
+.meter i.caution { background: var(--caution); }
+.meter i.alert { background: var(--alert); }
+.admin-countdown { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; margin-top: 12px; }
+.admin-countdown .span-2 { grid-column: 1 / -1; }
+.admin-inline { display: flex; gap: 8px; }
+.admin-inline input { flex: 1; min-width: 0; }
+input.mono { font: 14px var(--mono); font-stretch: 85%; }
+.admin-players { display: grid; margin-top: 8px; }
+.admin-player { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 10px 0; }
+.admin-player + .admin-player { border-top: 1px solid var(--line); }
+.admin-player .who img { width: 24px; height: 24px; }
+.admin-log { display: grid; gap: 10px; margin-top: 14px; max-height: 460px; overflow-y: auto; }
+.admin-log-entry { padding: 10px 12px; border-radius: var(--r-well); background: var(--well); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07); }
+.admin-log-entry code { font: 13.5px var(--mono); font-stretch: 85%; overflow-wrap: anywhere; }
+.admin-log-entry pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 var(--mono); font-stretch: 85%; color: var(--text-2); }
+
 /* ---------- Rundgang: Amethyst = Anleitung ---------- */
 
 .coach {
@@ -633,6 +659,7 @@ details.card[open] > summary::after { content: "\2212"; }
   .market-tools .search { grid-column: 1 / -1; }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .coach { left: 12px; right: 12px; bottom: 88px; width: auto; padding: 14px 16px 12px; }
+  .admin-countdown { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .coach-text { font-size: 13.5px; }
   .app { padding-top: 26px; padding-bottom: 110px; }
   .footer { padding-bottom: 100px; }

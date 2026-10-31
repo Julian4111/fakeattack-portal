@@ -18,6 +18,7 @@ window.PORTAL_CONFIG = {
     'Beim ersten Beitreten zeigt dir Minecraft diese Regeln – nur wer sie akzeptiert, kommt auf den Server.',
     'Sprachchat: Mod „Simple Voice Chat“ installieren, dann funktioniert er automatisch.',
     'Nether und End können zeitweise gesperrt sein.',
-    'Backups laufen alle 2 Stunden, angekündigte Neustarts mit Countdown im Spiel.'
+    'Backups laufen alle 2 Stunden, angekündigte Neustarts mit Countdown im Spiel.',
+    'Rucksäcke: /rucksack zeigt die Rezepte. Klein (9 Plätze), mit Eisen 27, mit Diamanten 54 – der Inhalt bleibt beim Aufwerten drin.'
   ]
 };

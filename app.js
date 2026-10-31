@@ -1239,12 +1239,162 @@
   // ---------------------------------------------------------------- Admin
 
   async function renderAdmin() {
-    const appeals = await rpc('admin_list_appeals', { p_token: state.token });
+    const [server, appeals] = await Promise.all([
+      rpc('admin_server', { p_token: state.token }),
+      rpc('admin_list_appeals', { p_token: state.token })
+    ]);
     const pending = appeals.filter((a) => a.status === 'pending').length;
+    const waiting = server.commands.some((c) => c.status === 'pending' || c.status === 'running');
+    // answers from the server arrive within seconds; otherwise the values refresh every 20 s
+    state.refreshTimer = setTimeout(() => {
+      if (currentPage() === 'admin' && !document.querySelector('#app input:focus, #app textarea:focus, #app select:focus')) refresh();
+    }, waiting ? 2500 : 20000);
     return h('div', {},
-      pageHead('Admin', 'Ban-Einsprüche', 'Vorschläge bearbeitest du direkt bei den Vorschlägen, Abstimmungen startest du bei den Abstimmungen.',
+      pageHead('Admin', 'Server-Verwaltung', 'Befehle gehen über die Website an den Server, die Antwort der Konsole steht unten. Vorschläge und Abstimmungen bearbeitest du auf ihren Seiten.'),
+      h('div', { class: 'grid' }, adminServerCard(server), adminCountdownCard()),
+      adminPlayersCard(server),
+      adminConsoleCard(server),
+      h('div', { class: 'row section-label' }, h('p', { class: 'eyebrow' }, 'Ban-Einsprüche'),
         h('span', { class: 'badge ' + (pending ? 'pending' : '') }, `${pending} offen`)),
       appeals.length ? appeals.map(appealAdminCard) : h('div', { class: 'empty' }, 'Keine Einsprüche.'));
+  }
+
+  // queue a console command for the server; it picks it up within a few seconds
+  function sendCommand(button, command, success) {
+    return act(button, () => rpc('admin_command', { p_token: state.token, p_command: command }), success || 'Befehl gesendet.');
+  }
+
+  const validName = (name) => /^[A-Za-z0-9_]{1,16}$/.test(name);
+  const GAMEMODES = { survival: 'Überleben', creative: 'Kreativ', adventure: 'Abenteuer', spectator: 'Zuschauer' };
+  const WORLDS = { normal: 'Oberwelt', nether: 'Nether', the_end: 'End' };
+
+  function adminServerCard(server) {
+    const d = server.details || {};
+    const tps = Array.isArray(d.tps) ? d.tps[0] : null;
+    const tpsClass = tps == null ? '' : tps >= 18 ? 'ok' : tps >= 15 ? 'caution' : 'alert';
+    const ram = d.ram_max_mb ? Math.round((d.ram_used_mb / d.ram_max_mb) * 100) : null;
+    return h('div', { class: 'card thick' },
+      h('div', { class: 'status-line' }, h('i', { class: 'dot ' + (server.online ? 'on' : 'off') }), server.online ? 'Online' : 'Offline'),
+      h('div', { class: 'admin-stats' },
+        h('div', {}, h('p', { class: 'eyebrow' }, 'TPS'), h('b', { class: 'stat ' + tpsClass }, tps == null ? '–' : tps.toFixed(1)),
+          h('span', { class: 'faint small' }, d.mspt != null ? `${d.mspt} ms pro Tick` : 'noch keine Werte')),
+        h('div', {}, h('p', { class: 'eyebrow' }, 'Arbeitsspeicher'), h('b', { class: 'stat' }, ram == null ? '–' : `${ram} %`),
+          h('span', { class: 'faint small' }, d.ram_max_mb ? `${(d.ram_used_mb / 1024).toFixed(1)} von ${(d.ram_max_mb / 1024).toFixed(1)} GB` : ''))),
+      ram == null ? null : h('div', { class: 'meter' }, h('i', { class: ram > 85 ? 'alert' : ram > 70 ? 'caution' : '', style: `width:${ram}%` })),
+      h('p', { class: 'faint small', style: 'margin-top:12px' },
+        [server.version ? `Minecraft ${server.version}` : null, server.updated_at ? `Stand ${formatDate(server.updated_at)}` : null].filter(Boolean).join(' · ')));
+  }
+
+  function adminCountdownCard() {
+    const kind = h('select', { 'aria-label': 'Art' }, h('option', { value: 'restartin' }, 'Neustart'), h('option', { value: 'shutdown' }, 'Stopp'));
+    const when = h('input', { value: '5m', 'aria-label': 'Wann', placeholder: '5m' });
+    const down = h('input', { value: '1m', 'aria-label': 'Wie lange offline', placeholder: '1m' });
+    const reason = h('input', { maxlength: '120', placeholder: 'Grund, z. B. Plugin-Update', 'aria-label': 'Grund' });
+    const start = h('button', { class: 'btn primary', type: 'submit' }, 'Countdown starten');
+    const message = h('input', { maxlength: '200', placeholder: 'Nachricht an alle Spieler', 'aria-label': 'Nachricht an alle' });
+    const send = h('button', { class: 'btn', type: 'submit' }, 'Senden');
+    const durations = /^(\d+\s*(h|m|s)\s*)+$|^\d+$/i;
+    return h('div', { class: 'card thick' },
+      h('p', { class: 'eyebrow' }, 'Neustart und Stopp'),
+      h('form', {
+        class: 'admin-countdown',
+        onsubmit: (event) => {
+          event.preventDefault();
+          if (!durations.test(when.value.trim()) || (down.value.trim() && !durations.test(down.value.trim()))) {
+            toast('Zeiten bitte wie 90s, 5m, 1h oder 1h30m angeben.', 'error');
+            return;
+          }
+          const command = [kind.value, when.value.trim(), down.value.trim(), reason.value.trim()].filter(Boolean).join(' ');
+          if (confirm(`${kind.value === 'shutdown' ? 'Server stoppen' : 'Server neu starten'} in ${when.value.trim()}?`)) {
+            sendCommand(start, command, 'Countdown gestartet.');
+          }
+        }
+      },
+      h('div', {}, h('label', {}, 'Art'), kind),
+      h('div', {}, h('label', {}, 'Wann'), when),
+      h('div', {}, h('label', {}, 'Wie lange offline'), down),
+      h('div', { class: 'span-2' }, h('label', {}, 'Grund'), reason),
+      h('div', { class: 'row span-2' }, start,
+        h('button', { class: 'btn danger', type: 'button', onclick: (event) => sendCommand(event.currentTarget, 'countdown cancel', 'Abbrechen gesendet.') }, 'Countdown abbrechen'))),
+      h('form', {
+        class: 'admin-inline', style: 'margin-top:16px',
+        onsubmit: (event) => {
+          event.preventDefault();
+          if (message.value.trim()) sendCommand(send, 'msg ' + message.value.trim(), 'Nachricht gesendet.');
+        }
+      }, message, send));
+  }
+
+  function adminPlayersCard(server) {
+    const details = (server.details && server.details.players) || [];
+    const players = server.online ? (details.length ? details : server.players) : [];
+    const ask = (question) => {
+      const answer = prompt(question);
+      return answer == null ? null : answer.trim();
+    };
+    const unban = h('input', { placeholder: 'Spielername', 'aria-label': 'Spieler entbannen', maxlength: '16' });
+    const unbanButton = h('button', { class: 'btn', type: 'submit' }, 'Entbannen');
+    return h('div', { class: 'card thick', style: 'margin-top:16px' },
+      h('div', { class: 'row' }, h('p', { class: 'eyebrow' }, `Spieler online · ${players.length}`)),
+      players.length ? h('div', { class: 'admin-players' }, players.map((p) => h('div', { class: 'admin-player' },
+        h('span', { class: 'who' }, head(p.uuid, 24), h('b', {}, p.name)),
+        h('span', { class: 'faint small' }, [p.ping != null ? `${p.ping} ms` : null, GAMEMODES[p.gamemode], WORLDS[p.world], p.health != null ? `${p.health} ♥` : null].filter(Boolean).join(' · ')),
+        h('span', { class: 'spacer' }),
+        h('button', {
+          class: 'btn small', onclick: (event) => {
+            const text = ask(`Nachricht an ${p.name}:`);
+            if (text && validName(p.name)) sendCommand(event.currentTarget, `pmsg ${p.name} ${text}`, 'Nachricht gesendet.');
+          }
+        }, 'Nachricht'),
+        h('button', {
+          class: 'btn small', onclick: (event) => {
+            const why = ask(`Grund für den Kick von ${p.name}:`);
+            if (why && validName(p.name)) sendCommand(event.currentTarget, `kick ${p.name} ${why}`, `${p.name} wird gekickt.`);
+          }
+        }, 'Kicken'),
+        h('button', {
+          class: 'btn small danger', onclick: (event) => {
+            const why = ask(`Grund für den Bann von ${p.name} (dauerhaft):`);
+            if (why && validName(p.name) && confirm(`${p.name} wirklich bannen?`)) sendCommand(event.currentTarget, `ban ${p.name} ${why}`, `${p.name} wird gebannt.`);
+          }
+        }, 'Bannen'))))
+        : h('p', { class: 'muted small', style: 'margin-top:10px' }, server.online ? 'Gerade ist niemand online.' : 'Der Server ist offline.'),
+      h('form', {
+        class: 'admin-inline', style: 'margin-top:16px',
+        onsubmit: (event) => {
+          event.preventDefault();
+          const name = unban.value.trim();
+          if (!validName(name)) {
+            toast('Bitte einen gültigen Spielernamen eingeben.', 'error');
+            return;
+          }
+          sendCommand(unbanButton, `unban ${name}`, `${name} wird entbannt.`);
+        }
+      }, unban, unbanButton));
+  }
+
+  const COMMAND_STATUS = { pending: ['Wartet', 'caution'], running: ['Läuft', 'caution'], done: ['Fertig', 'ok'], failed: ['Fehler', 'alert'] };
+
+  function adminConsoleCard(server) {
+    const input = h('input', { class: 'mono', placeholder: 'Befehl ohne /, z. B. list oder weather clear', 'aria-label': 'Konsolenbefehl', maxlength: '256' });
+    const run = h('button', { class: 'btn primary', type: 'submit' }, 'Ausführen');
+    return h('div', { class: 'card thick', style: 'margin-top:16px' },
+      h('p', { class: 'eyebrow', style: 'margin-bottom:10px' }, 'Konsole'),
+      h('form', {
+        class: 'admin-inline',
+        onsubmit: (event) => {
+          event.preventDefault();
+          if (input.value.trim()) sendCommand(run, input.value.trim());
+        }
+      }, input, run),
+      h('p', { class: 'faint small', style: 'margin-top:8px' }, 'Rechte vergeben (op, lp) und hartes Stoppen gehen aus Sicherheitsgründen nur in der echten Konsole.'),
+      server.commands.length ? h('div', { class: 'admin-log' }, server.commands.map((c) => {
+        const [label, tone] = COMMAND_STATUS[c.status] || [c.status, ''];
+        return h('div', { class: 'admin-log-entry' },
+          h('div', { class: 'row' }, h('code', {}, c.command), h('span', { class: 'badge ' + tone }, label),
+            h('span', { class: 'spacer' }), h('span', { class: 'faint small' }, `${c.admin} · ${ago(c.created_at)}`)),
+          c.result ? h('pre', {}, c.result) : null);
+      })) : h('p', { class: 'muted small', style: 'margin-top:12px' }, 'Noch keine Befehle.'));
   }
 
   function appealAdminCard(a) {
