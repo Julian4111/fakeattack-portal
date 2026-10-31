@@ -547,14 +547,16 @@ details.card[open] > summary::after { content: "\2212"; }
 
 .footer { position: relative; z-index: 1; padding: 22px 16px 28px; text-align: center; color: var(--text-4); font-size: 12px; }
 
-/* ---------- Mittlere Breite: kurze Namen, damit Marke und Spieler Platz behalten ---------- */
+/* ---------- Kopfzeile zu eng: app.js (fitTopbar) schaltet diese Stufen nacheinander zu ---------- */
 
-@media (max-width: 1400px) {
-  .nav a { padding: 0 11px; }
-  .nav .long { display: none; }
-  .nav .short { display: inline; }
-  .user .badge { display: none; }
-}
+.fit-short .nav .long { display: none; }
+.fit-short .nav .short { display: inline; }
+.fit-tight .nav a { padding: 0 10px; }
+.fit-tight .user .badge { display: none; }
+.fit-slim .status-pill { padding-right: 9px; }
+.fit-slim .status-pill .lines, .fit-slim .user .name { display: none; }
+.fit-icons .nav .short { display: none; }
+.fit-icons .nav a { padding: 0 11px; }
 
 /* ---------- Handy: Navigation als Leiste unten ---------- */
 

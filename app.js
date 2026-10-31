@@ -7,6 +7,8 @@
   const app = document.getElementById('app');
   const nav = document.getElementById('nav');
   const userBox = document.getElementById('user');
+  const topbar = document.querySelector('.topbar');
+  const brandPill = document.querySelector('.status-pill');
   const toastBox = document.getElementById('toast');
   const pillStatus = document.getElementById('pill-status');
 
@@ -295,7 +297,7 @@
     const pages = allowedPages();
     nav.hidden = pages.length === 0;
     nav.replaceChildren(...pages.filter((page) => !PAGES[page].hidden).map((page) =>
-      h('a', { href: '#/' + page, class: page === active ? 'on' : null, 'aria-current': page === active ? 'page' : null },
+      h('a', { href: '#/' + page, title: PAGES[page].title, class: page === active ? 'on' : null, 'aria-current': page === active ? 'page' : null },
         icon(PAGES[page].icon), h('span', { class: 'long' }, PAGES[page].title), h('span', { class: 'short', 'aria-hidden': 'true' }, PAGES[page].short))));
     userBox.hidden = !state.me;
     if (state.me) {
@@ -315,6 +317,28 @@
     }
     setMarketPending(state.marketPending);
     updatePill();
+    fitTopbar();
+  }
+
+  // The top bar is one row: brand, menu, player. When the menu does not fit centred between the two,
+  // these steps are switched on one after another (short names, no admin badge, no texts, icons only).
+  const FIT_STEPS = ['fit-short', 'fit-tight', 'fit-slim', 'fit-icons'];
+
+  function fitTopbar() {
+    topbar.classList.remove(...FIT_STEPS);
+    for (const step of FIT_STEPS) {
+      if (topbarFits()) return;
+      topbar.classList.add(step);
+    }
+  }
+
+  function topbarFits() {
+    // on phones the menu is a bar at the bottom of the screen
+    if (nav.hidden || getComputedStyle(nav).position === 'fixed') return true;
+    const style = getComputedStyle(topbar);
+    const room = topbar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 2 * parseFloat(style.columnGap);
+    const side = Math.max(brandPill.scrollWidth, userBox.hidden ? 0 : userBox.scrollWidth);
+    return nav.scrollWidth + 2 * side <= room;
   }
 
   // gold counter on the Boerse link: deals waiting for this player's answer or handover
@@ -332,6 +356,7 @@
       link.append(badge);
     }
     badge.textContent = state.marketPending > 9 ? '9+' : String(state.marketPending);
+    fitTopbar();
   }
 
   // status capsule top left: online/offline and player count, refreshed at most every 30 s
@@ -1223,6 +1248,13 @@
     document.getElementById('brand-name').textContent = CONFIG.serverName || 'Server';
     document.title = CONFIG.serverName || 'Server';
     window.addEventListener('hashchange', route);
+    // refit when the bar changes width (window size, zoom); the steps only change its content, not its width
+    let fitTimer = null;
+    const refit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTopbar, 60); };
+    if (window.ResizeObserver) new ResizeObserver(refit).observe(topbar);
+    else window.addEventListener('resize', refit);
+    // the web fonts change the widths once they have loaded
+    if (document.fonts) document.fonts.ready.then(fitTopbar);
     initStage();
 
     const url = new URL(window.location.href);
