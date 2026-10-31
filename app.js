@@ -574,7 +574,7 @@
     ]);
     setMarketPending(mine.pending);
 
-    const tabs = [['sell', 'Angebote'], ['buy', 'Gesuche'], ['deals', 'Meine Deals']];
+    const tabs = [['sell', 'Zu verkaufen'], ['buy', 'Gesucht'], ['deals', 'Meine Deals']];
     const tabBar = h('div', { class: 'filters', role: 'tablist' }, tabs.map(([key, label]) =>
       h('button', {
         class: m.view === key ? 'on' : null, role: 'tab', 'aria-selected': m.view === key ? 'true' : 'false',
@@ -631,13 +631,13 @@
       price.input.placeholder = fixed ? 'Preis' : 'optional';
       priceLabel.textContent = !sell ? 'Was zahlst du ungefähr?' : fixed ? 'Festpreis in Diamanten' : 'Preisvorstellung';
       hint.textContent = !sell
-        ? 'Gesuche sind immer VB: Wer liefern kann, schickt dir ein Angebot und ihr verhandelt.'
+        ? 'Suchanfragen sind immer VB: Wer liefern kann, schickt dir ein Angebot und ihr verhandelt.'
         : fixed ? 'Wer kauft, bekommt den Deal sofort. Danach trefft ihr euch im Spiel.'
           : 'Käufer schicken dir Preisvorschläge, du nimmst an, lehnst ab oder machst ein Gegenangebot.';
     };
     syncType();
 
-    const submit = h('button', { class: 'btn diamond', type: 'submit' }, sell ? 'Angebot einstellen' : 'Gesuch aufgeben');
+    const submit = h('button', { class: 'btn diamond', type: 'submit' }, sell ? 'Angebot einstellen' : 'Suchanfrage einstellen');
     const datalist = h('datalist', { id: 'market-items' }, [...ITEM_CATEGORY.values()].map((item) => h('option', { value: item.name })));
     const el = h('form', {
       class: 'card thick market-form', hidden: !m.formOpen,
@@ -650,10 +650,10 @@
             p_price_type: priceType, p_urgency: urgency ? Number(urgency.value) : 0, p_description: description.value
           });
           m.formOpen = false;
-        }, sell ? 'Dein Angebot ist online.' : 'Dein Gesuch ist online.');
+        }, sell ? 'Dein Angebot ist online.' : 'Deine Suchanfrage ist online.');
       }
     },
-    h('h3', {}, sell ? 'Neues Angebot' : 'Neues Gesuch'),
+    h('h3', {}, sell ? 'Neues Angebot' : 'Neue Suchanfrage'),
     h('div', { class: 'form-grid' },
       h('div', { class: 'span-2' }, h('label', { for: 'mk-title' }, 'Item'), title, datalist),
       h('div', {}, h('label', { for: 'mk-cat' }, 'Kategorie'), category),
@@ -682,15 +682,16 @@
       if (m.sort === 'cheap') shown = [...shown].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
       if (m.sort === 'expensive') shown = [...shown].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
       if (m.sort === 'urgent') shown = [...shown].sort((a, b) => b.urgency - a.urgency);
-      count.textContent = shown.length === list.length ? `${list.length} ${kind === 'sell' ? 'Angebot' : 'Gesuch'}${list.length === 1 ? '' : 'e'}` : `${shown.length} von ${list.length}`;
+      const noun = kind === 'sell' ? ['Angebot', 'Angebote'] : ['Suchanfrage', 'Suchanfragen'];
+      count.textContent = shown.length === list.length ? `${list.length} ${noun[list.length === 1 ? 0 : 1]}` : `${shown.length} von ${list.length}`;
       grid.replaceChildren(...(shown.length ? shown.map(listingCard) : [h('div', { class: 'empty' },
         list.length ? 'Nichts gefunden. Probier andere Filter.'
-          : kind === 'sell' ? 'Noch keine Angebote. Stell das erste ein!' : 'Noch keine Gesuche. Was brauchst du?')]));
+          : kind === 'sell' ? 'Noch keine Angebote. Stell das erste ein!' : 'Noch keine Suchanfragen. Was brauchst du?')]));
     };
 
     const search = h('input', {
       class: 'search', type: 'search', value: m.q, 'aria-label': 'Suchen',
-      placeholder: kind === 'sell' ? 'Angebote durchsuchen …' : 'Gesuche durchsuchen …',
+      placeholder: 'Item oder Spieler suchen …',
       oninput: () => { m.q = search.value; draw(); }
     });
     const select = (key, label, options) => {
@@ -761,7 +762,7 @@
       }, `Kaufen · ${priceText(l.price)}`));
     }
 
-    // VB: price offer for an Angebot, delivery offer for a Gesuch
+    // VB: price offer for an Angebot, delivery offer for a Suchanfrage
     const price = priceInput({ placeholder: 'Preis', value: l.price ?? '', 'aria-label': 'Dein Preis in Diamanten', required: true });
     const send = h('button', { class: 'btn gold', type: 'submit' }, l.kind === 'sell' ? 'Preis vorschlagen' : 'Ich kann liefern');
     return h('form', {
@@ -782,7 +783,7 @@
     const past = mine.deals.filter((d) => d.status !== 'open' && d.status !== 'agreed');
     return h('div', {},
       h('p', { class: 'eyebrow section-label' }, 'Laufende Deals'),
-      active.length ? active.map(dealCard) : h('div', { class: 'empty' }, 'Gerade keine laufenden Deals. Schau bei den Angeboten oder Gesuchen vorbei.'),
+      active.length ? active.map(dealCard) : h('div', { class: 'empty' }, 'Gerade keine laufenden Deals. Schau bei „Zu verkaufen“ oder „Gesucht“ vorbei.'),
       h('p', { class: 'eyebrow section-label' }, 'Deine Einträge'),
       mine.listings.length ? h('div', { class: 'card thick my-listings' }, mine.listings.map(myListingRow)) : h('div', { class: 'empty' }, 'Du hast noch nichts eingestellt.'),
       past.length ? [h('p', { class: 'eyebrow section-label' }, 'Beendet (letzte 14 Tage)'), ...past.map(dealCard)] : null);
@@ -889,7 +890,7 @@
   function myListingRow(l) {
     const active = l.status === 'open' || l.status === 'reserved';
     return h('div', { class: 'my-row' },
-      h('span', { class: 'badge' + (l.kind === 'sell' ? ' set' : '') }, l.kind === 'sell' ? 'Angebot' : 'Gesuch'),
+      h('span', { class: 'badge' + (l.kind === 'sell' ? ' set' : '') }, l.kind === 'sell' ? 'Angebot' : 'Suchanfrage'),
       h('div', { class: 'my-row-main' },
         h('b', {}, amount(l.quantity, l.title)),
         h('span', { class: 'faint small' }, [priceText(l.price), l.kind === 'sell' && l.price_type === 'fixed' ? 'Festpreis' : 'VB', ago(l.created_at)].join(' · '))),
