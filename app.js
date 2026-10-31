@@ -14,7 +14,8 @@
 
   const state = {
     token: null, me: null, filter: 'all', refreshTimer: null, pillAt: 0, openThreads: new Set(),
-    market: { view: 'sell', q: '', cat: '', sort: 'new', type: 'all', formOpen: false }, marketPending: 0
+    market: { view: 'sell', q: '', cat: '', sort: 'new', type: 'all', formOpen: false }, marketPending: 0,
+    practice: null
   };
   let renderSeq = 0;
 
@@ -50,7 +51,8 @@
     gem: '<path d="M7 4h10l4 5-9 11L3 9z"/><path d="M3 9h18M12 20 8.5 9 11 4M12 20l3.5-11L13 4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
-    check: '<path d="m5 12 5 5 9-10"/>'
+    check: '<path d="m5 12 5 5 9-10"/>',
+    guide: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>'
   };
 
   // ---------------------------------------------------------------- Hilfen
@@ -161,6 +163,11 @@
 
   // githubToken: Supabase-Auth access token after a GitHub login; only link_github and github_login need it
   async function rpc(fn, params, githubToken) {
+    // practice mode: the Börse runs in the browser with practice players, nothing reaches the database
+    if (state.practice && fn.startsWith('market_')) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return state.practice.call(fn, params);
+    }
     if (!CONFIG.supabaseUrl || !CONFIG.supabaseKey) {
       throw new Error('Die Website ist noch nicht mit der Datenbank verbunden (config.js).');
     }
@@ -200,6 +207,11 @@
     state.token = null;
     state.me = null;
     saveToken(null);
+    // a running tour or practice belongs to this player; it ends without counting as seen
+    tour.index = -1;
+    closeCoach();
+    clearTourTarget();
+    stopPractice();
   }
 
   async function login(code) {
@@ -257,7 +269,7 @@
 
   function githubCard(link) {
     if (CONFIG.githubLogin === false) return null;
-    return h('div', { class: 'card' },
+    return h('div', { class: 'card github-card' },
       h('p', { class: 'eyebrow' }, 'GitHub'),
       h('h3', { style: 'margin:6px 0 8px' }, link ? 'GitHub ist verknüpft' : 'GitHub verknüpfen'),
       link
@@ -367,7 +379,7 @@
       try { status = await rpc('get_status', { p_token: state.token }); } catch { return; }
     }
     state.pillAt = Date.now();
-    if (status.market_pending != null) setMarketPending(status.market_pending);
+    if (status.market_pending != null && !state.practice) setMarketPending(status.market_pending);
     const count = status.player_count || 0;
     pillStatus.replaceChildren(
       h('i', { class: 'dot ' + (status.online ? 'on' : 'off') }),
@@ -394,7 +406,10 @@
     document.title = `${PAGES[page].title} · ${CONFIG.serverName}`;
     try {
       const view = await PAGES[page].render();
-      if (seq === renderSeq) app.replaceChildren(view);
+      if (seq === renderSeq) {
+        app.replaceChildren(view);
+        tourAfterRender();
+      }
     } catch (error) {
       if (seq !== renderSeq) return;
       if (error.sessionExpired) {
@@ -467,7 +482,7 @@
     state.refreshTimer = setTimeout(() => { if (currentPage() === 'start' && !document.querySelector('input:focus, textarea:focus')) refresh(); }, 60000);
 
     const players = (s.players || []).map((p) => h('span', { class: 'player' }, head(p.uuid, 20), p.name));
-    const statusCard = h('div', { class: 'card' },
+    const statusCard = h('div', { class: 'card status-card' },
       h('div', { class: 'status-line' }, h('i', { class: 'dot ' + (s.online ? 'on' : 'off') }), s.online ? 'Online' : 'Offline'),
       s.online
         ? h('div', { class: 'figure' }, `${s.player_count} `, h('small', {}, `/ ${s.max_players} Spieler`))
@@ -476,7 +491,7 @@
       h('p', { class: 'faint small', style: 'margin-top:14px' }, [s.version ? `Minecraft ${s.version}` : null, s.updated_at ? `Stand ${formatDate(s.updated_at)}` : null].filter(Boolean).join(' · ')));
 
     const address = s.address && s.game_port ? `${s.address}:${s.game_port}` : null;
-    const addressCard = h('div', { class: 'card' },
+    const addressCard = h('div', { class: 'card address-card' },
       h('p', { class: 'eyebrow' }, 'Server-Adresse'),
       address
         ? h('div', { class: 'address' }, h('code', {}, address), h('button', { class: 'btn', onclick: () => copy(address) }, 'Kopieren'))
@@ -504,6 +519,8 @@
           h('h3', {}, 'Vorschläge'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Ideen für den Server einreichen und bewerten.')),
         h('a', { class: 'card link-card', href: '#/abstimmungen' },
           h('h3', {}, 'Abstimmungen'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Bei Server-Entscheidungen mitbestimmen.')),
+        h('a', { class: 'card link-card tour-link', href: '#/start', onclick: (event) => { event.preventDefault(); startTour(); } },
+          h('h3', {}, 'Rundgang'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Alle Funktionen in ein paar Minuten, mit Übungs-Börse.')),
         githubLink === null ? githubCard(null) : null));
   }
 
@@ -519,9 +536,14 @@
           h('h3', {}, state.me.name, state.me.is_admin ? [' ', h('span', { class: 'badge guide' }, 'Admin')] : null),
           h('p', { class: 'muted small', style: 'margin-top:4px' }, 'Mit diesem Spieler bist du angemeldet.'))),
       h('button', { class: 'btn', style: 'margin-top:16px', onclick: logout }, icon('out'), 'Abmelden'));
+    const tourCard = h('div', { class: 'card tour-card' },
+      h('p', { class: 'eyebrow' }, 'Hilfe'),
+      h('h3', { style: 'margin:6px 0 8px' }, 'Rundgang'),
+      h('p', { class: 'muted small' }, 'Alle Funktionen der Website Schritt für Schritt. In der Börse übst du mit Übungs-Spielern.'),
+      h('button', { class: 'btn', style: 'margin-top:12px', onclick: startTour }, icon('guide'), 'Rundgang starten'));
     return h('div', {},
       pageHead('Konto', state.me.name, 'Dein Spieler und die Anmeldung mit GitHub.'),
-      h('div', { class: 'grid' }, playerCard, githubCard(githubLink)));
+      h('div', { class: 'grid' }, playerCard, githubCard(githubLink), tourCard));
   }
 
   // ---------------------------------------------------------------- Boerse
@@ -582,8 +604,13 @@
       }, label, key === 'deals' && mine.pending ? h('span', { class: 'nav-count' }, mine.pending) : null)));
 
     const lead = 'Kaufen, verkaufen und bestellen. Bezahlt wird in Diamanten, übergeben im Spiel.';
+    const practiceBanner = state.practice ? h('div', { class: 'notice guide practice-banner' }, h('i'),
+      h('span', {}, h('b', {}, 'Übungsmodus. '), 'Steve und Alex sind Übungs-Spieler und antworten von selbst. Nichts hier ist echt, alles verschwindet am Ende.'),
+      tour.index < 0 ? h('button', { class: 'btn small', onclick: () => { stopPractice(); refresh(); } }, 'Übung beenden') : null) : null;
+    const tabsRow = h('div', { class: 'market-tabs' }, tabBar,
+      state.practice ? null : h('button', { class: 'btn small ghost', onclick: () => { startPractice(); refresh(); } }, 'Erst mal üben'));
     if (m.view === 'deals') {
-      return h('div', {}, pageHead('Item-Börse', 'Börse', lead), h('div', { class: 'market-tabs' }, tabBar), marketDeals(mine));
+      return h('div', {}, pageHead('Item-Börse', 'Börse', lead), practiceBanner, tabsRow, marketDeals(mine));
     }
     const form = listingForm(m.view);
     const toggle = h('button', {
@@ -597,7 +624,8 @@
     }, icon('plus'), m.view === 'sell' ? 'Etwas verkaufen' : 'Etwas suchen');
     return h('div', {},
       pageHead('Item-Börse', 'Börse', lead, toggle),
-      h('div', { class: 'market-tabs' }, tabBar),
+      practiceBanner,
+      tabsRow,
       form.el,
       marketBoard(list, m.view));
   }
@@ -713,7 +741,7 @@
   function listingCard(l) {
     const sell = l.kind === 'sell';
     const reserved = l.status === 'reserved';
-    return h('article', { class: 'card thick listing' + (reserved ? ' reserved' : '') },
+    return h('article', { class: 'card thick listing' + (reserved ? ' reserved' : ''), 'data-listing': l.id },
       h('div', { class: 'listing-top' },
         h('span', { class: 'eyebrow' }, CATEGORY_NAMES[l.category] || 'Sonstiges'),
         !sell && l.urgency > 0 ? h('span', { class: 'badge' + (l.urgency === 3 ? ' urgent' : '') }, URGENCY[l.urgency]) : null,
@@ -883,7 +911,7 @@
       }, text, sendButton));
     }
 
-    return h('article', { class: 'card thick deal' + (myTurn ? ' my-turn' : '') + (active ? '' : ' finished') },
+    return h('article', { class: 'card thick deal' + (myTurn ? ' my-turn' : '') + (active ? '' : ' finished'), 'data-deal-listing': d.listing.id },
       top, steps, summary, log, controls);
   }
 
@@ -915,7 +943,7 @@
     const body = h('textarea', { maxlength: '1500', placeholder: 'Beschreibe deine Idee (optional)' });
     const submit = h('button', { class: 'btn primary', type: 'submit' }, 'Einreichen');
     const form = h('form', {
-      class: 'card thick stack',
+      class: 'card thick stack suggestion-form',
       onsubmit: (event) => {
         event.preventDefault();
         act(submit, () => rpc('create_suggestion', { p_token: state.token, p_title: title.value, p_body: body.value }), 'Danke für deinen Vorschlag!');
@@ -1241,6 +1269,309 @@
         : h('p', { class: 'faint small', style: 'margin-top:14px' },
           `Entschieden von ${a.decided_by || '?'} am ${formatDate(a.decided_at)}` + (a.status === 'accepted' ? (a.unban_done ? ' · entbannt' : ' · Entbannung wartet auf den Server') : ''),
           a.admin_response ? h('span', {}, h('br'), 'Antwort: ' + a.admin_response) : null));
+  }
+
+  // ---------------------------------------------------------------- Übungs-Börse
+
+  const BOT_NEWS = {
+    accept: (bot) => `${bot} hat angenommen.`,
+    counter: (bot) => `${bot} macht ein Gegenangebot.`,
+    offer: (bot) => `${bot} hat dir ein Angebot geschickt.`,
+    buy: (bot) => `${bot} hat gekauft.`
+  };
+
+  function startPractice() {
+    stopPractice();
+    if (!window.PracticeMarket || !state.me) return;
+    state.practice = window.PracticeMarket({ uuid: state.me.uuid, name: state.me.name });
+    state.market = { ...state.market, view: 'sell', q: '', cat: '', formOpen: false };
+    state.practice.on((event) => {
+      if (event.type === 'bot' && BOT_NEWS[event.action]) toast(BOT_NEWS[event.action](event.bot), 'ok');
+      if (!tourEvent(event)) refreshWhenIdle();
+    });
+  }
+
+  function stopPractice() {
+    if (!state.practice) return;
+    state.practice.stop();
+    state.practice = null;
+    state.market = { ...state.market, view: 'sell', formOpen: false };
+    state.pillAt = 0;
+    setMarketPending(0);
+    if (state.token) updatePill();
+  }
+
+  // the practice players answer while you might be typing: re-render only when no field has focus
+  let idleTimer = null;
+  function refreshWhenIdle() {
+    clearTimeout(idleTimer);
+    if (currentPage() !== 'boerse') return;
+    const focused = document.activeElement;
+    if ((focused && focused.matches('#app input, #app textarea, #app select')) || state.market.formOpen) {
+      idleTimer = setTimeout(refreshWhenIdle, 800);
+      return;
+    }
+    refresh();
+  }
+
+  // ---------------------------------------------------------------- Rundgang
+
+  const TOUR_KEY = 'fa3-tour-done';
+  const tour = { index: -1, card: null, offered: false, ctx: {} };
+  const practiceDeal = (listingId) => (state.practice && listingId ? state.practice.dealFor(listingId) : null);
+  // a practice player has answered once the deal no longer waits on him
+  const answered = (listingId) => {
+    const d = practiceDeal(listingId);
+    return !!d && !(d.status === 'open' && state.practice.lastByMe(d));
+  };
+  const inBoerse = (step) => ({ page: 'boerse', practice: true, ...step });
+  const decided = (listingId) => (e) => e.listingId === listingId() && (e.type === 'market_accept' || (e.type === 'bot' && e.action === 'accept'));
+
+  // done(event) moves task and wait steps on; skipIf() jumps over steps that already happened
+  const TOUR_STEPS = [
+    { page: 'start', target: '.status-card', title: 'Server-Status',
+      text: 'Hier siehst du, ob der Server läuft und wer gerade online ist. Die kleine Anzeige oben links zeigt das auf jeder Seite.' },
+    { page: 'start', target: '.address-card', title: 'Server-Adresse',
+      text: 'Mit dieser Adresse verbindest du dich im Spiel. Bitte nicht öffentlich teilen.' },
+    { page: 'start', target: '.map-card', title: 'Weltkarte',
+      text: 'Eine 3D-Karte der Welt, direkt vom Server. Spielerstandorte sind ausgeblendet.' },
+    { page: 'start', target: '#nav a[href="#/boerse"]', title: 'Die Börse',
+      text: 'Hier kaufst, verkaufst und bestellst du Items. Bezahlt wird in Diamanten, übergeben im Spiel. Gleich übst du das mit zwei Übungs-Spielern.' },
+    inBoerse({ market: 'sell', target: '.practice-banner', title: 'Übungsmodus',
+      text: 'Steve und Alex sind nicht echt. Sie antworten von selbst, und nichts von dem, was du jetzt machst, sehen andere Spieler.' }),
+    inBoerse({ market: 'sell', target: '.market-tabs', title: 'Drei Bereiche',
+      text: '„Zu verkaufen“ zeigt, was andere anbieten. „Gesucht“ sind Aufträge: Dinge, die jemand sucht. Unter „Meine Deals“ steht alles, woran du gerade handelst.' }),
+    inBoerse({ market: 'sell', target: '[data-listing="9001"]', title: 'Kaufen zum Festpreis',
+      text: 'Türkis ist der Preis in Diamanten. „Festpreis“ heißt: Wer zuerst kauft, hat den Deal sofort.',
+      task: 'Kauf Steves Elytra: Klick auf „Kaufen“ und bestätige.',
+      done: (e) => e.type === 'market_buy' && e.listingId === 9001 }),
+    inBoerse({ market: 'deals', target: '[data-deal-listing="9001"]', title: 'Der Deal steht',
+      text: 'Grün heißt: Deal. Jetzt trefft ihr euch im Spiel, du gibst die Diamanten und Steve die Elytra. Unten könnt ihr euch schreiben, zum Beispiel wo ihr euch trefft.' }),
+    inBoerse({ market: 'deals', target: '[data-deal-listing="9001"] .deal-actions .btn.emerald', title: 'Übergabe bestätigen',
+      text: 'Wenn alles getauscht ist, bestätigt einer von euch die Übergabe. Dann ist der Deal erledigt.',
+      task: 'Klick auf „Übergabe bestätigen“.',
+      done: (e) => e.type === 'market_done' && e.listingId === 9001 }),
+    inBoerse({ market: 'sell', target: '[data-listing="9002"]', title: 'Verhandeln mit VB',
+      text: 'Gold heißt VB, also Verhandlungsbasis. Du schlägst einen Preis vor, und ihr handelt hin und her, bis ihr euch einig seid.',
+      task: 'Schlag Alex einen Preis für das Obsidian vor, zum Beispiel 6 Diamanten.',
+      done: (e) => e.type === 'market_offer' && e.listingId === 9002 }),
+    inBoerse({ market: 'deals', target: '[data-deal-listing="9002"]', title: 'Alex überlegt …',
+      text: 'Dein Angebot ist raus. Alex antwortet gleich: Entweder nimmt er an, oder er macht ein Gegenangebot.',
+      wait: true, done: (e) => e.type === 'bot' && e.listingId === 9002, skipIf: () => answered(9002) }),
+    inBoerse({ market: 'deals', target: '[data-deal-listing="9002"]', title: 'Du bist dran',
+      text: 'Alex will etwas mehr. Gold markiert Deals, bei denen du dran bist. Du kannst annehmen, wieder etwas bieten oder ablehnen.',
+      task: 'Nimm Alex’ Gegenangebot an.',
+      done: decided(() => 9002), skipIf: () => practiceDeal(9002)?.status !== 'open' }),
+    inBoerse({ market: 'buy', target: '.page-head .btn.diamond', title: 'Auftrag aufgeben',
+      text: 'Du brauchst etwas? Gib eine Suchanfrage auf. Andere sehen sie unter „Gesucht“ und bieten an, es dir zu liefern. Suchanfragen sind immer VB.',
+      task: 'Klick auf „Etwas suchen“, wähl ein Item (zum Beispiel Diamantblock), Menge und Preis und stell die Suchanfrage ein.',
+      done: (e) => e.type === 'market_create' && e.kind === 'buy', remember: 'buyListing' }),
+    inBoerse({ market: 'deals', target: '.my-listings', title: 'Warte auf Angebote',
+      text: 'Deine Suchanfrage steht jetzt unter „Deine Einträge“. Steve hat sie schon gesehen …',
+      wait: true, done: (e) => e.type === 'bot' && e.listingId === tour.ctx.buyListing, skipIf: () => !!practiceDeal(tour.ctx.buyListing) }),
+    inBoerse({ market: 'deals', target: () => `[data-deal-listing="${tour.ctx.buyListing}"]`, title: 'Steve kann liefern',
+      text: 'Steve bietet dir an, die Items zu bringen, und nennt seinen Preis.',
+      task: 'Nimm Steves Angebot an.',
+      done: decided(() => tour.ctx.buyListing), skipIf: () => practiceDeal(tour.ctx.buyListing)?.status !== 'open' }),
+    inBoerse({ market: 'buy', target: '[data-listing="9011"]', title: 'Auftrag annehmen',
+      text: 'Andersrum geht es auch: Steve sucht Enderperlen. Wenn du welche hast, bietest du an, sie zu liefern. Das ist dann dein Auftrag.',
+      task: 'Klick bei den Enderperlen auf „Ich kann liefern“. Der Preis ist schon eingetragen.',
+      done: (e) => e.type === 'market_offer' && e.listingId === 9011 }),
+    inBoerse({ market: 'deals', target: '[data-deal-listing="9011"]', title: 'Steve antwortet …',
+      text: 'Steve schaut sich dein Angebot an.',
+      wait: true, done: (e) => e.type === 'bot' && e.listingId === 9011, skipIf: () => answered(9011) }),
+    inBoerse({ market: 'deals', target: '[data-deal-listing="9011"]', title: 'Auftrag angenommen',
+      text: 'Steve ist einverstanden. Jetzt bringst du ihm die Enderperlen im Spiel und bekommst die Diamanten. Danach bestätigt ihr die Übergabe, genau wie vorhin.' }),
+    inBoerse({ market: 'sell', target: '.page-head .btn.diamond', title: 'Selbst verkaufen',
+      text: 'Zum Schluss verkaufst du selbst etwas. Bei Festpreis bekommt es der Erste, der kauft. Bei VB schicken dir Käufer Preisvorschläge.',
+      task: 'Klick auf „Etwas verkaufen“ und stell ein Angebot ein.',
+      done: (e) => e.type === 'market_create' && e.kind === 'sell', remember: 'sellListing' }),
+    inBoerse({ market: 'deals', target: '.my-listings', title: 'Ein Käufer meldet sich …',
+      text: 'Dein Angebot ist online. Alex hat es gerade entdeckt …',
+      wait: true, done: (e) => e.type === 'bot' && e.listingId === tour.ctx.sellListing, skipIf: () => !!practiceDeal(tour.ctx.sellListing) }),
+    inBoerse({ market: 'deals', target: () => `[data-deal-listing="${tour.ctx.sellListing}"]`, title: 'Alex will kaufen',
+      text: 'Bei Festpreis hat Alex direkt gekauft, bei VB schlägt er dir einen Preis vor. Du entscheidest: annehmen, Gegenangebot oder ablehnen. Die goldene Zahl oben im Menü zeigt, wie viele Deals auf dich warten.' }),
+    { page: 'boerse', practice: false, market: 'sell', target: '.market-tabs', title: 'Übung vorbei',
+      text: 'Jetzt siehst du wieder die echte Börse: Was du hier einstellst, sehen alle Spieler. Mit „Erst mal üben“ kannst du jederzeit nochmal üben.' },
+    { page: 'vorschlaege', target: '.suggestion-form', title: 'Vorschläge',
+      text: 'Du hast eine Idee für den Server? Schreib sie hier rein. Die Admins sehen alle Vorschläge und markieren, was angenommen oder umgesetzt ist.' },
+    { page: 'vorschlaege', target: '.suggestion', title: 'Abstimmen und mitreden',
+      text: 'Mit den Pfeilen stimmst du für oder gegen einen Vorschlag. Unter „Antworten“ diskutierst du wie in einem Forum mit.' },
+    { page: 'abstimmungen', target: '.option', title: 'Abstimmungen',
+      text: 'Bei Server-Entscheidungen stimmst du hier ab. Ein Klick auf eine Antwort reicht, und solange die Abstimmung läuft, kannst du sie ändern.' },
+    { page: 'regeln', target: '.rules', title: 'Regeln',
+      text: 'Die Regeln des Servers. Du hast sie beim Joinen bestätigt, hier kannst du sie jederzeit nachlesen.' },
+    { page: 'einspruch', target: '.page-head', title: 'Einspruch',
+      text: 'Falls du mal gebannt wirst: Im Bann-Bildschirm steht ein Code. Damit meldest du dich hier an und legst Einspruch ein.' },
+    { page: 'konto', target: '.github-card', title: 'Dein Konto',
+      text: 'Hierher kommst du über deinen Kopf oben rechts. Verknüpfst du GitHub, brauchst du keinen Code mehr aus dem Spiel. Und hier findest du diesen Rundgang wieder.' },
+    { page: 'start', title: 'Fertig!',
+      text: 'Das war alles. Im Spiel öffnet /web diese Seite, und /weblogin gibt dir einen Login-Code. Viel Spaß auf Fake Attack 3!' }
+  ];
+
+  function tourSeen() {
+    try { return localStorage.getItem(TOUR_KEY) === '1'; } catch { return false; }
+  }
+
+  function markTourSeen() {
+    try { localStorage.setItem(TOUR_KEY, '1'); } catch { /* then the offer simply comes back next time */ }
+  }
+
+  async function startTour() {
+    if (!state.me || state.me.banned) return;
+    tour.ctx = {};
+    tour.index = 0;
+    await showTourStep();
+  }
+
+  function endTour() {
+    tour.index = -1;
+    markTourSeen();
+    closeCoach();
+    clearTourTarget();
+    if (state.practice) {
+      stopPractice();
+      if (currentPage() === 'boerse') refresh();
+    }
+  }
+
+  function goToStep(index) {
+    tour.index = index;
+    showTourStep();
+  }
+
+  async function showTourStep() {
+    while (tour.index < TOUR_STEPS.length && TOUR_STEPS[tour.index].skipIf && TOUR_STEPS[tour.index].skipIf()) {
+      tour.index++;
+    }
+    if (tour.index < 0) return;
+    if (tour.index >= TOUR_STEPS.length) {
+      endTour();
+      return;
+    }
+    const index = tour.index;
+    const step = TOUR_STEPS[index];
+    if (step.practice && !state.practice) startPractice();
+    if (step.practice === false && state.practice) stopPractice();
+    if (step.market) {
+      state.market.view = step.market;
+      state.market.formOpen = false;
+    }
+    if (currentPage() !== step.page) history.pushState(null, '', '#/' + step.page);
+    renderCoach(step);
+    await route();
+    if (tour.index !== index) return;
+    const target = document.querySelector('.tour-target');
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(placeCoach, 650);
+  }
+
+  // keep the guide card off the highlighted element: bottom right, or bottom left if that covers less of it
+  function placeCoach() {
+    const card = tour.card;
+    const target = document.querySelector('.tour-target');
+    if (!card) return;
+    card.classList.remove('coach-left');
+    if (!target || window.innerWidth <= 860) return;
+    const covered = () => {
+      const c = card.getBoundingClientRect();
+      const t = target.getBoundingClientRect();
+      return Math.max(0, Math.min(c.right, t.right) - Math.max(c.left, t.left))
+        * Math.max(0, Math.min(c.bottom, t.bottom) - Math.max(c.top, t.top));
+    };
+    const right = covered();
+    if (!right) return;
+    card.classList.add('coach-left');
+    if (covered() >= right) card.classList.remove('coach-left');
+  }
+
+  // practice events finish task and wait steps; true when the tour re-renders the page itself
+  function tourEvent(event) {
+    if (tour.index < 0) return false;
+    const step = TOUR_STEPS[tour.index];
+    if (!step.done || !step.done(event)) return false;
+    if (step.remember) tour.ctx[step.remember] = event.listingId;
+    tour.index++;
+    setTimeout(showTourStep, step.wait ? 400 : 800);
+    return true;
+  }
+
+  // after every render: mark the current target again, or offer the tour once per visit to everyone who has not seen it
+  function tourAfterRender() {
+    if (tour.index >= 0) {
+      markTourTarget(TOUR_STEPS[tour.index]);
+      return;
+    }
+    if (!tour.offered && state.me && !state.me.banned && !tourSeen()) {
+      tour.offered = true;
+      setTimeout(offerTour, 700);
+    }
+  }
+
+  function markTourTarget(step) {
+    clearTourTarget();
+    if (!step.target || currentPage() !== step.page) return;
+    const selector = typeof step.target === 'function' ? step.target() : step.target;
+    const el = selector ? document.querySelector(selector) : null;
+    if (el) el.classList.add('tour-target');
+    placeCoach();
+  }
+
+  function clearTourTarget() {
+    document.querySelectorAll('.tour-target').forEach((el) => el.classList.remove('tour-target'));
+  }
+
+  function closeCoach() {
+    if (tour.card) tour.card.remove();
+    tour.card = null;
+  }
+
+  function coach(...children) {
+    closeCoach();
+    tour.card = h('aside', { class: 'coach glass thick', role: 'dialog', 'aria-label': 'Rundgang', 'aria-live': 'polite' }, ...children);
+    document.body.append(tour.card);
+  }
+
+  function renderCoach(step) {
+    const total = TOUR_STEPS.length;
+    const last = tour.index === total - 1;
+    const prev = TOUR_STEPS[tour.index - 1];
+    // back only to plain explanations in the same mode; practice actions cannot be undone
+    const canBack = prev && !prev.done && !!prev.practice === !!step.practice;
+    const next = last
+      ? h('button', { class: 'btn primary', onclick: endTour }, 'Fertig')
+      : step.done
+        ? h('button', { class: 'btn small ghost', onclick: () => goToStep(tour.index + 1) }, 'Überspringen')
+        : h('button', { class: 'btn primary', onclick: () => goToStep(tour.index + 1) }, 'Weiter');
+    coach(
+      h('div', { class: 'coach-top' },
+        h('span', { class: 'eyebrow' }, `Rundgang · ${tour.index + 1} von ${total}`),
+        h('button', { class: 'coach-close', title: 'Rundgang beenden', 'aria-label': 'Rundgang beenden', onclick: endTour }, icon('close'))),
+      h('div', { class: 'coach-progress' }, h('i', { style: `width:${Math.round(((tour.index + 1) / total) * 100)}%` })),
+      h('h3', {}, step.title),
+      h('p', { class: 'coach-text' }, step.text),
+      step.task ? h('div', { class: 'coach-task' }, h('b', {}, 'Deine Aufgabe'), h('span', {}, step.task)) : null,
+      step.wait ? h('div', { class: 'coach-wait' }, h('i'), 'Einen Moment …') : null,
+      h('div', { class: 'coach-actions' },
+        canBack ? h('button', { class: 'btn small ghost', onclick: () => goToStep(tour.index - 1) }, 'Zurück') : null,
+        h('span', { class: 'spacer' }),
+        next));
+  }
+
+  function offerTour() {
+    if (tour.index >= 0 || tour.card || !state.me || state.me.banned || tourSeen()) return;
+    coach(
+      h('div', { class: 'coach-top' },
+        h('span', { class: 'eyebrow' }, 'Rundgang'),
+        h('button', { class: 'coach-close', title: 'Später', 'aria-label': 'Später', onclick: closeCoach }, icon('close'))),
+      h('h3', {}, 'Kennst du schon alles?'),
+      h('p', { class: 'coach-text' }, 'Der Rundgang zeigt dir in ein paar Minuten alle Funktionen der Website. In der Börse übst du Kaufen, Verkaufen und Aufträge mit zwei Übungs-Spielern.'),
+      h('div', { class: 'coach-actions' },
+        h('button', { class: 'btn small ghost', onclick: () => { markTourSeen(); closeCoach(); } }, 'Nicht mehr zeigen'),
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn small', onclick: closeCoach }, 'Später'),
+        h('button', { class: 'btn primary', onclick: startTour }, 'Los geht’s')));
   }
 
   // ---------------------------------------------------------------- Start
