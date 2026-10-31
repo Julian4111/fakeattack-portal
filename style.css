@@ -434,6 +434,50 @@ input[type="datetime-local"] { color-scheme: dark; }
 .offer-input input::-webkit-outer-spin-button, .offer-input input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .offer-input input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
+/* Bestenliste: jede Kachel hat ihre Farbe (Balken, Punkt, Hintergrund des Ersten), die Zahlen bleiben weiss.
+   Die vier Farben sind gegen den dunklen Hintergrund und fuer Farbsehschwaeche geprueft, in genau dieser Reihenfolge. */
+.board { margin-top: 16px; }
+.board-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.board-tile { --tone: #8A9099; --tone-soft: var(--fill); position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
+.board-tile::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--tone); }
+.board-tile.redstone { --tone: #E2585B; --tone-soft: rgba(226, 88, 91, .16); }
+.board-tile.diamond { --tone: #16A3AE; --tone-soft: rgba(22, 163, 174, .18); }
+.board-tile.gold { --tone: #BF8410; --tone-soft: rgba(191, 132, 16, .2); }
+.board-tile.amethyst { --tone: #A06AD8; --tone-soft: rgba(160, 106, 216, .2); }
+.board-title { display: flex; align-items: center; gap: 8px; }
+.board-title i { width: 10px; height: 10px; border-radius: 2px; background: var(--tone); flex: none; }
+.board-first { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-well); background: var(--tone-soft); box-shadow: inset 3px 0 0 var(--tone); }
+.board-first img { width: 40px; height: 40px; border-radius: 6px; flex: none; }
+.board-first div { display: grid; gap: 2px; min-width: 0; }
+.board-value { font: 600 22px var(--mono); font-stretch: 85%; letter-spacing: -.3px; color: var(--text); white-space: nowrap; }
+.board-value small { font: 500 13px var(--sans); letter-spacing: 0; color: var(--text-2); }
+.board-hero { font-size: 32px; }
+.board-hero small { font-size: 15px; }
+.board-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-rest { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; counter-reset: rank 1; }
+.board-rest li { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; counter-increment: rank; }
+.board-rest li::before { content: counter(rank) "."; width: 18px; flex: none; color: var(--text-3); font: 600 12px var(--mono); }
+.board-rest img { width: 18px; height: 18px; border-radius: 3px; flex: none; }
+.board-small { font: 500 13px var(--mono); font-stretch: 85%; color: var(--text-2); white-space: nowrap; }
+.board-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; font-size: 14px; }
+.board-facts li { display: flex; justify-content: space-between; gap: 8px; color: var(--text-2); }
+.board-facts b { font: 600 14px var(--mono); font-stretch: 85%; color: var(--text); }
+
+/* Preis aus Diamanten und Items */
+.price-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 260px; min-width: 0; }
+.price-editor .offer-input { flex: 0 1 150px; }
+.price-rows { display: grid; gap: 6px; flex-basis: 100%; }
+.price-rows:empty { display: none; }
+.price-row { display: grid; grid-template-columns: minmax(0, 1fr) 76px 96px auto; gap: 6px; align-items: center; }
+.price-row .btn { padding: 0 9px; }
+.price-row .btn svg { width: 14px; height: 14px; }
+.price-set { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.price-item { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 999px; background: var(--fill); font-size: 13px; }
+.price-item img { width: 20px; height: 20px; object-fit: contain; image-rendering: pixelated; }
+.price-item b { font: 600 14px var(--mono); font-stretch: 85%; color: var(--text); }
+.price-item .slot-text { font-size: 10px; }
+@media (max-width: 520px) { .price-row { grid-template-columns: minmax(0, 1fr) 60px 82px auto; } }
+
 .section-label { margin: 26px 0 12px; }
 .section-label:first-child { margin-top: 0; }
 

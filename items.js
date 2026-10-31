@@ -37,6 +37,18 @@ window.MARKET_ITEMS = {
   dienste: ["Haus bauen", "Farm bauen", "Mob-Farm bauen", "XP-Farm bauen", "Begleitschutz", "Abbau-Stunde (Minen)", "Redstone-Schaltung", "Dungeon-Run"]
 };
 
+// Weitere Items, die man als Bezahlung angeben kann (zusaetzlich zu allen Items der Liste unten).
+// Diamanten und Diamantbloecke stehen im eigenen Diamanten-Feld.
+window.PRICE_ITEM_IDS = {
+  "Redstoneblock": "redstone_block", "Lapislazuliblock": "lapis_block", "Kohleblock": "coal_block", "Kupferblock": "copper_block",
+  "Quarzblock": "quartz_block", "Roheisen": "raw_iron", "Rohgold": "raw_gold", "Rohkupfer": "raw_copper",
+  "Eisennugget": "iron_nugget", "Goldnugget": "gold_nugget", "Erfahrungsfläschchen": "experience_bottle",
+  "Lohenrute": "blaze_rod", "Lohenstaub": "blaze_powder", "Schwarzpulver": "gunpowder", "Leder": "leather", "Pfeil": "arrow",
+  "Shulkerschale": "shulker_shell", "Knochenmehl": "bone_meal", "Ghastträne": "ghast_tear", "Enderauge": "ender_eye",
+  "Phantomhaut": "phantom_membrane", "Echoscherbe": "echo_shard", "Prismarinscherbe": "prismarine_shard", "Tintenbeutel": "ink_sac",
+  "Feder": "feather", "Zucker": "sugar", "Netherwarze": "nether_wart", "Weizen": "wheat", "Kürbis": "pumpkin"
+};
+
 // Minecraft-Item zu einem Namen aus der Liste: Die Handelstruhe im Spiel (/handel) zaehlt diese Ware selbst.
 // Was fehlt (Sets, Traenke, Verzauberungen, Tiere, Dienste, Holz- und Farbsorten), prueft der Kaeufer mit eigenen Augen.
 window.MARKET_ITEM_IDS = {

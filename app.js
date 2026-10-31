@@ -553,10 +553,11 @@
   // ---------------------------------------------------------------- Start
 
   async function renderStart() {
-    const [s, githubLink] = await Promise.all([
+    const [s, githubLink, board] = await Promise.all([
       rpc('get_status', { p_token: state.token }),
       // false = could not check; then the start page simply leaves the hint out
-      CONFIG.githubLogin === false ? false : rpc('my_github', { p_token: state.token }).catch(() => false)
+      CONFIG.githubLogin === false ? false : rpc('my_github', { p_token: state.token }).catch(() => false),
+      rpc('get_leaderboard', { p_token: state.token }).catch(() => null)
     ]);
     updatePill(s);
     const players = (s.players || []).map((p) => h('span', { class: 'player' }, head(p.uuid, 20), p.name));
@@ -594,6 +595,7 @@
     return h('div', {},
       pageHead('Übersicht', `Hallo, ${state.me.name}`),
       h('div', { class: 'grid' }, statusCard, addressCard, mapCard),
+      board ? leaderboard(board) : null,
       h('div', { class: 'grid', style: 'margin-top:16px' },
         h('a', { class: 'card link-card', href: '#/boerse' },
           h('h3', {}, 'Börse'), h('p', { class: 'muted small', style: 'margin-top:6px' }, 'Items kaufen, verkaufen und bestellen.')),
@@ -608,6 +610,58 @@
         githubLink === null ? githubCard(null) : null));
   }
 
+  // ---------------------------------------------------------------- Bestenliste
+
+  const number = (n) => new Intl.NumberFormat('de-DE').format(n);
+
+  // play time from minutes: "45 Min.", "4,5 Std.", "263 Std."
+  function playTime(minutes) {
+    if (minutes < 60) return `${minutes} Min.`;
+    const hours = minutes / 60;
+    return `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: hours < 10 ? 1 : 0 }).format(hours)} Std.`;
+  }
+
+  // one colour per tile, always together with its title; the order of the colours is fixed (see style.css)
+  // value and unit apart, so the number can be big and the unit small
+  const splitTime = (minutes) => { const text = playTime(minutes); const cut = text.lastIndexOf(' '); return [text.slice(0, cut), text.slice(cut + 1)]; };
+  const BOARD_TILES = [
+    { key: 'deaths', title: 'Meiste Tode', tone: 'redstone', format: (n) => [number(n), n === 1 ? 'Tod' : 'Tode'] },
+    { key: 'kills', title: 'Meiste Monsterkills', tone: 'diamond', format: (n) => [number(n), 'Monster'] },
+    { key: 'playtime', title: 'Meiste Spielzeit', tone: 'gold', format: splitTime }
+  ];
+
+  const boardValue = ([value, unit], extra) => h('b', { class: 'board-value' + (extra || '') }, value, h('small', {}, ` ${unit}`));
+
+  function leaderboard(board) {
+    const tiles = BOARD_TILES.map((tile) => {
+      const [first, ...rest] = board[tile.key] || [];
+      return h('div', { class: `card thick board-tile ${tile.tone}` },
+        h('p', { class: 'eyebrow board-title' }, h('i'), tile.title),
+        first
+          ? h('div', { class: 'board-first' }, head(first.uuid, 40),
+            h('div', {}, boardValue(tile.format(first.value)), h('span', { class: 'board-name' }, first.name)))
+          : h('p', { class: 'faint small' }, 'Noch keine Werte.'),
+        rest.length ? h('ol', { class: 'board-rest', start: '2' }, rest.map((entry) => {
+          const [value, unit] = tile.format(entry.value);
+          return h('li', {}, head(entry.uuid, 18), h('span', { class: 'board-name' }, entry.name), h('span', { class: 'spacer' }),
+            h('span', { class: 'board-small', title: `${value} ${unit}` }, tile.key === 'playtime' ? `${value} ${unit}` : value));
+        })) : null);
+    });
+    const players = board.players || 0;
+    const total = h('div', { class: 'card thick board-tile amethyst' },
+      h('p', { class: 'eyebrow board-title' }, h('i'), 'Spielzeit insgesamt'),
+      boardValue(splitTime(board.total_minutes || 0), ' board-hero'),
+      h('p', { class: 'muted small' }, `alle ${number(players)} Spieler zusammen`),
+      h('ul', { class: 'board-facts' },
+        players ? h('li', {}, h('span', {}, 'Im Schnitt'), h('b', {}, playTime(Math.round((board.total_minutes || 0) / players)))) : null,
+        h('li', {}, h('span', {}, 'Tode zusammen'), h('b', {}, number(board.total_deaths || 0))),
+        h('li', {}, h('span', {}, 'Monster zusammen'), h('b', {}, number(board.total_kills || 0)))));
+    return h('div', { class: 'board' },
+      h('div', { class: 'row section-label' }, h('p', { class: 'eyebrow' }, 'Bestenliste'), h('span', { class: 'spacer' }),
+        board.updated_at ? h('span', { class: 'faint small' }, `Stand ${ago(board.updated_at)}`) : null),
+      h('div', { class: 'grid board-grid' }, ...tiles, total));
+  }
+
   // ---------------------------------------------------------------- Inventar
 
   // item pictures: rendered icons first, then the plain textures; without any picture the slot shows letters
@@ -617,7 +671,8 @@
     (id) => `https://assets.mcasset.cloud/26.3/assets/minecraft/textures/block/${id}.png`
   ];
   // German names from the market's item list; the first name wins
-  const ITEM_NAMES = new Map(Object.entries(window.MARKET_ITEM_IDS || {}).map(([name, id]) => [id, name]).reverse());
+  const ITEM_NAMES = new Map(Object.entries({ ...(window.PRICE_ITEM_IDS || {}), ...(window.MARKET_ITEM_IDS || {}) })
+    .map(([name, id]) => [id, name]).reverse());
   const ENCHANTS = {
     protection: 'Schutz', fire_protection: 'Feuerschutz', blast_protection: 'Explosionsschutz', projectile_protection: 'Schusssicher',
     feather_falling: 'Federfall', respiration: 'Atmung', aqua_affinity: 'Wasseraffinität', thorns: 'Dornen', depth_strider: 'Wasserläufer',
@@ -792,11 +847,89 @@
   function diamonds(n) { return `${n} Diamant${n === 1 ? '' : 'en'}`; }
   function priceText(n) { return n == null ? 'VB' : n === 0 ? 'gratis' : diamonds(n); }
 
-  // price in diamonds; without a number it is only "VB"
-  function priceTag(price) {
-    if (price == null) return h('span', { class: 'price vb' }, h('b', {}, 'VB'));
-    if (price === 0) return h('span', { class: 'price' }, h('b', {}, 'Gratis'));
-    return h('span', { class: 'price', title: diamonds(price) }, h('b', {}, String(price)), icon('gem'));
+  // items a price can be paid in (besides diamonds): every item of the market list and a few more
+  const PRICE_CHOICES = new Map(Object.entries({ ...ITEM_IDS, ...(window.PRICE_ITEM_IDS || {}) })
+    .filter(([, id]) => id !== 'diamond' && id !== 'diamond_block')
+    .map(([name, id]) => [name.toLowerCase(), { name, id }]));
+
+  // 192 -> "3 Stacks", 200 -> "3 Stacks + 8", 32 -> "32"
+  function stackText(n) {
+    if (n < 64) return String(n);
+    const stacks = Math.floor(n / 64);
+    return `${stacks} Stack${stacks === 1 ? '' : 's'}${n % 64 ? ` + ${n % 64}` : ''}`;
+  }
+
+  const priceItemText = (entry) => `${stackText(entry.amount)} ${itemName({ id: entry.item })}`;
+
+  // the whole price as text: "32 Diamanten + 3 Stacks Redstoneblock"
+  function priceLabel(price, items) {
+    const parts = [];
+    if (price > 0 || (price === 0 && !(items || []).length)) parts.push(priceText(price));
+    for (const entry of items || []) parts.push(priceItemText(entry));
+    return parts.length ? parts.join(' + ') : 'VB';
+  }
+
+  // price in diamonds, plus items with their pictures; without anything it is only "VB"
+  function priceTag(price, items) {
+    const list = items || [];
+    const gems = price == null && !list.length ? h('span', { class: 'price vb' }, h('b', {}, 'VB'))
+      : price === 0 && !list.length ? h('span', { class: 'price' }, h('b', {}, 'Gratis'))
+        : price > 0 ? h('span', { class: 'price', title: diamonds(price) }, h('b', {}, String(price)), icon('gem')) : null;
+    if (!list.length) return gems;
+    return h('span', { class: 'price-set', title: priceLabel(price, list) }, gems,
+      list.map((entry) => h('span', { class: 'price-item' }, itemIcon(entry.item), h('b', {}, stackText(entry.amount)),
+        h('span', {}, itemName({ id: entry.item })))));
+  }
+
+  let priceEditorCount = 0;
+
+  // diamonds plus up to five items ("3 Stacks Redstoneblock"); read() gives {price, items} or null after a message
+  function priceEditor({ id, price, items, placeholder, label }) {
+    const listId = `price-items-${++priceEditorCount}`;
+    const gems = priceInput({ id, placeholder: placeholder || 'Diamanten', value: price ?? '', 'aria-label': label || 'Preis in Diamanten' });
+    const rows = h('div', { class: 'price-rows' });
+    const add = h('button', { type: 'button', class: 'btn small ghost' }, icon('plus'), 'Item als Preis');
+    const datalist = h('datalist', { id: listId }, [...PRICE_CHOICES.values()].map((choice) => h('option', { value: choice.name })));
+    const addRow = (entry) => {
+      const name = h('input', { list: listId, placeholder: 'Item, z. B. Redstoneblock', 'aria-label': 'Item', autocomplete: 'off',
+        value: entry ? itemName({ id: entry.item }) : '' });
+      const stacks = entry && entry.amount >= 64 && entry.amount % 64 === 0;
+      const count = h('input', { inputmode: 'decimal', placeholder: 'Menge', 'aria-label': 'Menge',
+        value: entry ? String(stacks ? entry.amount / 64 : entry.amount) : '' });
+      const unit = h('select', { 'aria-label': 'Einheit' }, h('option', { value: '1', selected: !stacks }, 'Stück'),
+        h('option', { value: '64', selected: stacks }, 'Stacks'));
+      const row = h('div', { class: 'price-row' }, name, count, unit,
+        h('button', { type: 'button', class: 'btn small ghost', 'aria-label': 'Item entfernen', onclick: () => { row.remove(); sync(); } }, icon('close')));
+      row.read = () => {
+        const choice = PRICE_CHOICES.get(name.value.trim().toLowerCase());
+        const n = Number(count.value.replace(',', '.')) * Number(unit.value);
+        if (!name.value.trim() && !count.value.trim()) return undefined;
+        if (!choice) throw new Error(`„${name.value.trim() || '?'}“ kenne ich nicht. Bitte ein Item aus der Liste wählen.`);
+        if (!Number.isInteger(n) || n < 1 || n > 100000) throw new Error(`Bitte eine ganze Menge für ${choice.name} angeben.`);
+        return { item: choice.id, amount: n };
+      };
+      rows.append(row);
+      sync();
+      return row;
+    };
+    const sync = () => { add.hidden = rows.children.length >= 5; };
+    add.addEventListener('click', () => addRow().querySelector('input').focus());
+    for (const entry of items || []) addRow(entry);
+    return {
+      el: h('div', { class: 'price-editor' }, gems.box, rows, add, datalist),
+      gems: gems.input,
+      read: () => {
+        try {
+          const list = [...rows.children].map((row) => row.read()).filter(Boolean);
+          const value = gems.input.value === '' ? null : Number(gems.input.value);
+          if (value != null && (!Number.isInteger(value) || value < 0 || value > 100000)) throw new Error('Diamanten: eine ganze Zahl von 0 bis 100000.');
+          return { price: value, items: list.length ? list : null };
+        } catch (error) {
+          toast(error.message, 'error');
+          return null;
+        }
+      }
+    };
   }
 
   function priceTypeBadge(type) {
@@ -864,8 +997,8 @@
       if (hit) category.value = hit.cat;
     });
     const quantity = h('input', { id: 'mk-qty', type: 'number', min: '1', max: '100000', step: '1', value: '1', required: true, inputmode: 'numeric' });
-    const price = priceInput({ id: 'mk-price' });
-    const priceLabel = h('label', { for: 'mk-price' });
+    const price = priceEditor({ id: 'mk-price' });
+    const priceHeading = h('label', { for: 'mk-price' });
     const hint = h('p', { class: 'faint small' });
     const description = h('textarea', { id: 'mk-desc', maxlength: '500', placeholder: sell ? 'Verzauberungen, Zustand, wo ihr euch trefft …' : 'Was genau brauchst du? Bis wann?' });
     const urgency = sell ? null : h('select', { id: 'mk-urgency' }, URGENCY.map((label, i) => h('option', { value: String(i) }, label)));
@@ -875,9 +1008,8 @@
     const syncType = () => {
       for (const b of typeButtons) b.className = b.dataset.type === priceType ? 'on' : '';
       const fixed = priceType === 'fixed';
-      price.input.required = fixed;
-      price.input.placeholder = fixed ? 'Preis' : 'optional';
-      priceLabel.textContent = !sell ? 'Was zahlst du ungefähr?' : fixed ? 'Festpreis in Diamanten' : 'Preisvorstellung';
+      price.gems.placeholder = fixed ? 'Diamanten' : 'optional';
+      priceHeading.textContent = !sell ? 'Was zahlst du ungefähr? Diamanten und/oder Items' : fixed ? 'Festpreis: Diamanten und/oder Items' : 'Preisvorstellung';
       hint.textContent = !sell
         ? 'Suchanfragen sind immer VB: Wer liefern kann, schickt dir ein Angebot und ihr verhandelt.'
         : fixed ? 'Wer kauft, bekommt den Deal sofort. Danach trefft ihr euch im Spiel.'
@@ -891,14 +1023,20 @@
       class: 'card thick market-form', hidden: !m.formOpen,
       onsubmit: (event) => {
         event.preventDefault();
+        const offer = price.read();
+        if (!offer) return;
+        if (priceType === 'fixed' && offer.price == null && !offer.items) {
+          toast('Bei Festpreis brauchst du einen Preis: Diamanten, Items oder beides.', 'error');
+          return;
+        }
         act(submit, async () => {
           // a name from the item list tells the trade chest in the game which item to count
           const known = ITEM_CATEGORY.get(title.value.trim().toLowerCase());
           await rpc('market_create', {
             p_token: state.token, p_kind: kind, p_title: title.value, p_category: category.value,
-            p_quantity: Number(quantity.value), p_price: price.input.value === '' ? null : Number(price.input.value),
+            p_quantity: Number(quantity.value), p_price: offer.price,
             p_price_type: priceType, p_urgency: urgency ? Number(urgency.value) : 0, p_description: description.value,
-            p_item: known ? ITEM_IDS[known.name] || null : null
+            p_item: known ? ITEM_IDS[known.name] || null : null, p_price_items: offer.items
           });
           m.formOpen = false;
         }, sell ? 'Dein Angebot ist online.' : 'Deine Suchanfrage ist online.');
@@ -912,7 +1050,7 @@
       sell
         ? h('div', {}, h('label', {}, 'Preisart'), h('div', { class: 'filters', role: 'group', 'aria-label': 'Preisart' }, typeButtons))
         : h('div', {}, h('label', { for: 'mk-urgency' }, 'Wie dringend?'), urgency),
-      h('div', {}, priceLabel, price.box),
+      h('div', { class: 'span-2' }, priceHeading, price.el),
       h('div', { class: 'span-2' }, h('label', { for: 'mk-desc' }, 'Beschreibung (optional)'), description)),
     hint,
     h('div', { class: 'row' }, submit));
@@ -972,9 +1110,9 @@
         h('span', { class: 'faint small' }, ago(l.created_at))),
       h('h3', {}, sell ? amount(l.quantity, l.title) : `Suche ${amount(l.quantity, l.title)}`),
       h('div', { class: 'price-row' },
-        !sell && l.price != null ? h('span', { class: 'muted small' }, 'Bietet') : null,
-        priceTag(l.price),
-        l.price == null ? h('span', { class: 'muted small' }, 'Preis verhandelbar') : priceTypeBadge(l.price_type)),
+        !sell && (l.price != null || l.price_items) ? h('span', { class: 'muted small' }, 'Bietet') : null,
+        priceTag(l.price, l.price_items),
+        l.price == null && !l.price_items ? h('span', { class: 'muted small' }, 'Preis verhandelbar') : priceTypeBadge(l.price_type)),
       l.description ? h('p', { class: 'listing-text' }, l.description) : null,
       h('div', { class: 'listing-foot' },
         h('span', { class: 'who' }, head(l.uuid, 20), l.mine ? 'Du' : l.author),
@@ -1003,30 +1141,36 @@
       return bar(h('button', {
         class: 'btn emerald',
         onclick: (event) => {
-          if (!confirm(`${amount(l.quantity, l.title)} für ${priceText(l.price)} von ${l.author} kaufen? Danach trefft ihr euch im Spiel zur Übergabe.`)) return;
+          if (!confirm(`${amount(l.quantity, l.title)} für ${priceLabel(l.price, l.price_items)} von ${l.author} kaufen? Danach trefft ihr euch im Spiel zur Übergabe.`)) return;
           act(event.currentTarget, async () => {
             await rpc('market_buy', { p_token: state.token, p_listing_id: l.id });
             state.market.view = 'deals';
             window.scrollTo(0, 0);
           }, 'Gekauft! Der Deal steht unter „Meine Deals“.');
         }
-      }, `Kaufen · ${priceText(l.price)}`));
+      }, l.price_items ? 'Kaufen' : `Kaufen · ${priceText(l.price)}`));
     }
 
-    // VB: price offer for an Angebot, delivery offer for a Suchanfrage
-    const price = priceInput({ placeholder: 'Preis', value: l.price ?? '', 'aria-label': 'Dein Preis in Diamanten', required: true });
+    // VB: price offer for an Angebot, delivery offer for a Suchanfrage; starts with the asked price
+    const price = priceEditor({ price: l.price, items: l.price_items, label: 'Dein Preis in Diamanten' });
     const send = h('button', { class: 'btn gold', type: 'submit' }, l.kind === 'sell' ? 'Preis vorschlagen' : 'Ich kann liefern');
     return h('form', {
       class: 'listing-actions offer',
       onsubmit: (event) => {
         event.preventDefault();
+        const offer = price.read();
+        if (!offer) return;
+        if (offer.price == null && !offer.items) {
+          toast('Bitte einen Preis angeben: Diamanten, Items oder beides.', 'error');
+          return;
+        }
         act(send, async () => {
-          await rpc('market_offer', { p_token: state.token, p_listing_id: l.id, p_price: Number(price.input.value), p_body: null });
+          await rpc('market_offer', { p_token: state.token, p_listing_id: l.id, p_price: offer.price, p_body: null, p_price_items: offer.items });
           state.market.view = 'deals';
           window.scrollTo(0, 0);
         }, 'Angebot geschickt. Weiter geht es unter „Meine Deals“.');
       }
-    }, price.box, send, h('span', { class: 'spacer' }), remove);
+    }, price.el, send, h('span', { class: 'spacer' }), remove);
   }
 
   function marketDeals(mine) {
@@ -1048,7 +1192,7 @@
     const giveGoods = (d.listing.kind === 'sell') === d.i_own_listing;
     if (e.locked) {
       return h('div', { class: 'notice ok' }, h('i'), h('span', {}, h('b', {}, 'Gesichert! '),
-        `Ware und Bezahlung liegen in der Handelstruhe. Hol dir im Spiel mit /handel ${giveGoods ? 'die Diamanten' : 'die Ware'} ab.`));
+        `Ware und Bezahlung liegen in der Handelstruhe. Hol dir im Spiel mit /handel ${giveGoods ? 'die Bezahlung' : 'die Ware'} ab.`));
     }
     if (d.status !== 'agreed') {
       return h('div', { class: 'notice caution' }, h('i'), h('span', {}, h('b', {}, 'Handelstruhe: '),
@@ -1058,11 +1202,14 @@
       : e.confirmed ? 'freigegeben' : e.goods_stacks ? `${e.goods_stacks} Stapel, wartet auf Freigabe` : 'noch leer';
     const check = d.listing.item ? 'Die Ware zählt der Server automatisch.'
       : giveGoods ? `${d.partner} schaut sich deine Ware an und gibt sie frei.` : 'Du schaust dir die Ware an und gibst sie frei.';
+    // what of the payment is inside: diamonds and every price item
+    const paid = [d.price > 0 || !d.price_items ? `${e.paid || 0} von ${diamonds(d.price || 0)}` : null,
+      ...(e.pay_items || []).map((p) => `${p.have} von ${stackText(p.need)} ${itemName({ id: p.item })}`)].filter(Boolean).join(', ');
     return h('div', { class: 'notice ok' }, h('i'), h('span', {},
-      h('b', {}, `Deal über ${priceText(d.price)}. `),
-      `Übergabe im Spiel mit /handel: Du legst ${giveGoods ? 'die Ware' : 'die Diamanten'} in die Handelstruhe. `,
+      h('b', {}, `Deal über ${priceLabel(d.price, d.price_items)}. `),
+      `Übergabe im Spiel mit /handel: Du legst ${giveGoods ? 'die Ware' : 'die Bezahlung'} in die Handelstruhe. `,
       'Erst wenn beide Seiten vollständig sind, kann jeder die andere Seite nehmen. So kann niemand betrügen. ', check,
-      e.inside ? h('span', { class: 'escrow-progress' }, `Ware: ${goods} · Bezahlung: ${e.paid || 0} von ${diamonds(d.price)}`) : null,
+      e.inside ? h('span', { class: 'escrow-progress' }, `Ware: ${goods} · Bezahlung: ${paid}`) : null,
       e.too_big ? h('span', { class: 'escrow-progress' }, 'Zu groß für eine Handelstruhe: Tauscht direkt und bestätigt dann die Übergabe.') : null));
   }
 
@@ -1089,16 +1236,16 @@
     const steps = reached == null ? null : h('ol', { class: 'deal-steps' }, ['Verhandlung', 'Deal', 'Übergeben'].map((label, i) =>
       h('li', { class: (i === 0 ? 'talk' : 'deal') + (i < reached ? ' done' : i === reached ? ' now' : '') }, h('i'), label)));
 
-    const summary = d.price == null ? null : h('div', { class: 'deal-sum' },
+    const summary = d.price == null && !d.price_items ? null : h('div', { class: 'deal-sum' },
       h('span', {}, d.status === 'open' ? (d.last_by_me ? 'Dein letztes Angebot' : `Angebot von ${d.partner}`) : 'Vereinbart'),
-      priceTag(d.price));
+      priceTag(d.price, d.price_items));
 
     const log = h('div', { class: 'deal-log' }, d.messages.map((msg) => {
       if (msg.kind === 'system') return h('p', { class: 'log-system' }, msg.body);
       const when = h('time', { datetime: msg.created_at }, ago(msg.created_at));
       if (msg.kind === 'offer') {
         return h('p', { class: 'log-offer' + (msg.mine ? ' mine' : '') },
-          h('b', {}, msg.mine ? 'Du' : msg.author), msg.mine ? ' bietest ' : ' bietet ', h('span', { class: 'chip' }, priceText(msg.price)), when);
+          h('b', {}, msg.mine ? 'Du' : msg.author), msg.mine ? ' bietest ' : ' bietet ', h('span', { class: 'chip' }, priceLabel(msg.price, msg.price_items)), when);
       }
       return h('p', { class: 'log-text' + (msg.mine ? ' mine' : '') }, h('b', {}, (msg.mine ? 'Du' : msg.author) + ': '), msg.body, when);
     }));
@@ -1106,20 +1253,29 @@
 
     const controls = [];
     if (d.status === 'open') {
-      const counter = priceInput({ placeholder: 'Preis', 'aria-label': d.last_by_me ? 'Neuer Preis in Diamanten' : 'Gegenangebot in Diamanten', required: true });
+      const counter = priceEditor({ label: d.last_by_me ? 'Neuer Preis in Diamanten' : 'Gegenangebot in Diamanten' });
       const counterButton = h('button', { class: 'btn gold', type: 'submit' }, d.last_by_me ? 'Neues Angebot' : 'Gegenangebot');
       controls.push(h('div', { class: 'deal-actions' },
         myTurn
-          ? h('button', { class: 'btn emerald', onclick: (event) => act(event.currentTarget, call('market_accept'), 'Deal! Trefft euch im Spiel zur Übergabe.') },
-            icon('check'), `Annehmen · ${priceText(d.price)}`)
+          ? h('button', {
+            class: 'btn emerald', title: priceLabel(d.price, d.price_items),
+            onclick: (event) => act(event.currentTarget, call('market_accept'), 'Deal! Trefft euch im Spiel zur Übergabe.')
+          }, icon('check'), d.price_items ? 'Annehmen' : `Annehmen · ${priceText(d.price)}`)
           : h('span', { class: 'muted small' }, `Wartet auf ${d.partner} …`),
         h('form', {
           class: 'offer',
           onsubmit: (event) => {
             event.preventDefault();
-            act(counterButton, () => rpc('market_counter', { p_token: state.token, p_deal_id: d.id, p_price: Number(counter.input.value) }), 'Angebot geschickt.');
+            const offer = counter.read();
+            if (!offer) return;
+            if (offer.price == null && !offer.items) {
+              toast('Bitte einen Preis angeben: Diamanten, Items oder beides.', 'error');
+              return;
+            }
+            act(counterButton, () => rpc('market_counter', { p_token: state.token, p_deal_id: d.id, p_price: offer.price, p_price_items: offer.items }),
+              'Angebot geschickt.');
           }
-        }, counter.box, counterButton),
+        }, counter.el, counterButton),
         h('span', { class: 'spacer' }),
         h('button', {
           class: 'btn small ghost warn',
@@ -1171,7 +1327,7 @@
       h('span', { class: 'badge' + (l.kind === 'sell' ? ' set' : '') }, l.kind === 'sell' ? 'Angebot' : 'Suchanfrage'),
       h('div', { class: 'my-row-main' },
         h('b', {}, amount(l.quantity, l.title)),
-        h('span', { class: 'faint small' }, [priceText(l.price), l.kind === 'sell' && l.price_type === 'fixed' ? 'Festpreis' : 'VB', ago(l.created_at)].join(' · '))),
+        h('span', { class: 'faint small' }, [priceLabel(l.price, l.price_items), l.kind === 'sell' && l.price_type === 'fixed' ? 'Festpreis' : 'VB', ago(l.created_at)].join(' · '))),
       l.deal_count && active ? h('span', { class: 'faint small' }, `${l.deal_count} im Gespräch`) : null,
       h('span', { class: 'badge' + (l.status === 'reserved' || l.status === 'done' ? ' ok' : '') }, LISTING_STATUS[l.status]),
       active ? h('button', {
