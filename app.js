@@ -13,7 +13,7 @@
   const pillStatus = document.getElementById('pill-status');
 
   const state = {
-    token: null, me: null, filter: 'all', refreshTimer: null, pillAt: 0, openThreads: new Set(),
+    token: null, me: null, filter: 'all', refreshTimer: null, renderedAt: 0, dirty: false, pillAt: 0, openThreads: new Set(),
     market: { view: 'sell', q: '', cat: '', sort: 'new', type: 'all', formOpen: false }, marketPending: 0,
     practice: null
   };
@@ -388,8 +388,83 @@
       status.online ? `Online · ${count} Spieler` : 'Offline');
   }
 
+  // ---------------------------------------------------------------- Von selbst aktualisieren
+
+  // how often each page loads its data again (ms); pages not listed stay as they are
+  const AUTO_REFRESH = { start: 30000, boerse: 20000, inventar: 30000, vorschlaege: 60000, abstimmungen: 30000, einspruch: 60000, admin: 20000 };
+
+  // nothing is re-rendered under the player's hands: no focused or edited field, nothing opened or selected
+  function idle() {
+    return document.visibilityState === 'visible' && !state.dirty && tour.index < 0 && !state.practice && !state.market.formOpen
+      && !(currentPage() === 'admin' && state.adminInventory)
+      && !document.querySelector('#app input:focus, #app textarea:focus, #app select:focus, #app details[open], #app .slot.on');
+  }
+
+  function autoRefresh(page) {
+    if (currentPage() !== page) return;
+    if (!idle()) {
+      state.refreshTimer = setTimeout(() => autoRefresh(page), 5000);
+      return;
+    }
+    refresh();
+  }
+
+  // typing marks the page as edited until the next render; search and filters are kept in state anyway
+  app.addEventListener('input', (event) => {
+    if (!event.target.closest('.search, .market-tools')) state.dirty = true;
+  });
+
+  // back in the tab after a while: show fresh data right away
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !state.me) return;
+    checkVersion();
+    const page = currentPage();
+    if (AUTO_REFRESH[page] && Date.now() - state.renderedAt > 15000) autoRefresh(page);
+  });
+
+  // ---------------------------------------------------------------- Neue Version der Website
+
+  // GitHub Pages sends an ETag per file; when one of them changes, a new version is online
+  const VERSION_FILES = ['index.html', 'app.js', 'style.css', 'config.js', 'items.js', 'practice.js'];
+  let versionStamp = null;
+
+  async function checkVersion() {
+    if (document.visibilityState !== 'visible') return;
+    let stamp;
+    try {
+      const heads = await Promise.all(VERSION_FILES.map((file) => fetch(file, { method: 'HEAD', cache: 'no-store' })));
+      stamp = heads.map((r) => (r.ok ? r.headers.get('etag') || r.headers.get('last-modified') || '' : '')).join('|');
+    } catch {
+      return; // offline, next time
+    }
+    if (versionStamp == null) {
+      versionStamp = stamp;
+    } else if (stamp !== versionStamp) {
+      versionStamp = stamp;
+      updateWebsite();
+    }
+  }
+
+  async function updateWebsite() {
+    // fresh copies into the browser cache first, otherwise the reload could still use the old files
+    await Promise.all(VERSION_FILES.map((file) => fetch(file, { cache: 'reload' }).catch(() => null)));
+    if (!state.me || idle()) {
+      location.reload();
+      return;
+    }
+    if (document.querySelector('.update-bar')) return;
+    document.body.append(h('div', { class: 'update-bar', role: 'status' },
+      h('span', {}, 'Die Website wurde aktualisiert.'),
+      h('button', { class: 'btn small primary', onclick: () => location.reload() }, 'Neu laden')));
+  }
+
+  checkVersion();
+  setInterval(checkVersion, 5 * 60 * 1000);
+
   async function route() {
     clearTimeout(state.refreshTimer);
+    state.refreshTimer = null;
+    state.dirty = false;
     const seq = ++renderSeq;
     if (!state.me) {
       renderChrome(null);
@@ -410,6 +485,9 @@
       const view = await PAGES[page].render();
       if (seq === renderSeq) {
         app.replaceChildren(view);
+        state.renderedAt = Date.now();
+        // a page can set its own timer while rendering (the admin page polls faster while commands run)
+        if (!state.refreshTimer && AUTO_REFRESH[page]) state.refreshTimer = setTimeout(() => autoRefresh(page), AUTO_REFRESH[page]);
         tourAfterRender();
       }
     } catch (error) {
@@ -481,8 +559,6 @@
       CONFIG.githubLogin === false ? false : rpc('my_github', { p_token: state.token }).catch(() => false)
     ]);
     updatePill(s);
-    state.refreshTimer = setTimeout(() => { if (currentPage() === 'start' && !document.querySelector('input:focus, textarea:focus')) refresh(); }, 60000);
-
     const players = (s.players || []).map((p) => h('span', { class: 'player' }, head(p.uuid, 20), p.name));
     const statusCard = h('div', { class: 'card status-card' },
       h('div', { class: 'status-line' }, h('i', { class: 'dot ' + (s.online ? 'on' : 'off') }), s.online ? 'Online' : 'Offline'),
@@ -1421,10 +1497,8 @@
     const pending = appeals.filter((a) => a.status === 'pending').length;
     const waiting = server.commands.some((c) => c.status === 'pending' || c.status === 'running');
     // answers from the server arrive within seconds; otherwise the values refresh every 20 s,
-    // but not while an inventory is open (it would close again)
-    state.refreshTimer = setTimeout(() => {
-      if (currentPage() === 'admin' && !state.adminInventory && !document.querySelector('#app input:focus, #app textarea:focus, #app select:focus')) refresh();
-    }, waiting ? 2500 : 20000);
+    // but not while an inventory is open (it would close again, see idle)
+    state.refreshTimer = setTimeout(() => autoRefresh('admin'), waiting ? 2500 : AUTO_REFRESH.admin);
     return h('div', {},
       pageHead('Admin', 'Server-Verwaltung', 'Befehle gehen über die Website an den Server, die Antwort der Konsole steht unten. Vorschläge und Abstimmungen bearbeitest du auf ihren Seiten.'),
       h('div', { class: 'grid' }, adminServerCard(server), adminCountdownCard()),

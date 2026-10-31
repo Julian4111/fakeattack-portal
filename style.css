@@ -545,6 +545,10 @@ details.card[open] > summary::after { content: "\2212"; }
 .inv-detail-head .slot { width: 46px; flex: none; }
 .inv-detail-head div { display: grid; gap: 2px; }
 .admin-more { width: auto; height: 32px; font-size: 13px; }
+
+/* neue Version online, aber gerade wird getippt: Hinweis statt Neuladen */
+.update-bar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 12px; max-width: calc(100% - 32px); padding: 10px 12px 10px 18px; border-radius: var(--r-card); background: rgba(var(--panel), .94); box-shadow: var(--ring-soft), 0 10px 30px rgba(0, 0, 0, .45); font-size: 14px; }
+@media (max-width: 860px) { .update-bar { bottom: 84px; } }
 .admin-pick { width: auto; min-width: 0; max-width: 100%; flex: 0 1 260px; }
 
 /* ---------- Admin-Panel ---------- */
