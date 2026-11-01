@@ -108,8 +108,27 @@
     return new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
   }
 
+  // player heads: Minotar shows the current skin; mc-heads.net keeps old skins for a long time, so only as fallback
+  const HEAD_URLS = [
+    (id, px) => `https://minotar.net/helm/${id}/${px}.png`,
+    (id, px) => `https://mc-heads.net/avatar/${id}/${px}`
+  ];
+  const NO_PICTURE = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
   function head(uuid, size) {
-    return h('img', { src: `https://mc-heads.net/avatar/${encodeURIComponent(uuid)}/${size}`, alt: '', width: size, height: size, loading: 'lazy' });
+    // as many pixels as the screen shows (sharp on phones too), in whole skin pixels of 8
+    const px = Math.min(296, Math.ceil(size * (window.devicePixelRatio || 1) / 8) * 8);
+    const id = encodeURIComponent(uuid);
+    const img = h('img', { class: 'head', alt: '', width: size, height: size, loading: 'lazy', draggable: 'false' });
+    let step = 0;
+    // no service reachable: an empty square in the same place instead of a broken picture
+    img.onerror = () => {
+      step += 1;
+      if (step < HEAD_URLS.length) img.src = HEAD_URLS[step](id, px);
+      else { img.onerror = null; img.src = NO_PICTURE; img.classList.add('head-missing'); }
+    };
+    img.src = HEAD_URLS[0](id, px);
+    return img;
   }
 
   function loadToken() {

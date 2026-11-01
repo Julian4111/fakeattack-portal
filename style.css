@@ -40,6 +40,9 @@
 }
 
 * { box-sizing: border-box; }
+/* Spielerkoepfe: Skin-Pixel bleiben scharf; ohne erreichbaren Dienst ein leeres Feld */
+img.head { image-rendering: pixelated; }
+img.head-missing { background: var(--fill-2); }
 [hidden] { display: none !important; }
 html { background: var(--bg); }
 body {
