@@ -209,6 +209,7 @@
     if (!response.ok) {
       const error = new Error((data && data.message) || `Fehler ${response.status}`);
       error.sessionExpired = error.message.startsWith('Bitte melde dich');
+      error.webLocked = error.message.startsWith('Die Website ist gerade gesperrt');
       throw error;
     }
     return data;
@@ -218,6 +219,11 @@
     if (error.sessionExpired) {
       clearSession();
       toast('Deine Anmeldung ist abgelaufen. Bitte melde dich neu an.', 'error');
+      route();
+      return;
+    }
+    if (error.webLocked && state.me) {
+      state.webLocked = true;
       route();
       return;
     }
@@ -313,10 +319,42 @@
     route();
   }
 
+  // ---------------------------------------------------------------- Website gesperrt
+
+  // an admin can lock the website for everyone else (admin page); players stay logged in and get back in afterwards
+  const lockedOut = () => Boolean(state.me && state.webLocked && !state.me.is_admin);
+
+  function lockedView() {
+    return h('div', { class: 'card thick' },
+      h('p', { class: 'eyebrow' }, 'Website gesperrt'),
+      h('div', { class: 'notice caution', style: 'margin-top:12px' }, h('i'),
+        h('span', {}, h('b', {}, 'Die Website ist gerade gesperrt. '), 'Sobald ein Admin sie wieder freigibt, geht es hier von selbst weiter.')),
+      h('div', { class: 'row', style: 'margin-top:16px' }, h('button', { class: 'btn small ghost', onclick: logout }, 'Abmelden')));
+  }
+
+  // every 30 s while locked: open again, logged out or still locked
+  async function checkUnlocked() {
+    if (!lockedOut()) return;
+    let me;
+    try { me = await rpc('session_info', { p_token: state.token }); } catch { me = undefined; }
+    if (!lockedOut()) return;
+    if (me === null) {
+      clearSession();
+      route();
+    } else if (me && !me.web_locked) {
+      state.me = me;
+      state.webLocked = false;
+      toast('Die Website ist wieder offen.', 'ok');
+      route();
+    } else {
+      state.refreshTimer = setTimeout(checkUnlocked, 30000);
+    }
+  }
+
   // ---------------------------------------------------------------- Kopfzeile
 
   function allowedPages() {
-    if (!state.me) return [];
+    if (!state.me || lockedOut()) return [];
     if (state.me.banned) return ['einspruch'];
     return Object.keys(PAGES).filter((page) => !PAGES[page].admin || state.me.is_admin);
   }
@@ -401,6 +439,11 @@
     }
     state.pillAt = Date.now();
     if (status.market_pending != null && !state.practice) setMarketPending(status.market_pending);
+    // an admin locked or unlocked the website: everyone else sees it at the latest with the next status
+    if (state.me && !state.me.is_admin && status.web_locked != null && status.web_locked !== Boolean(state.webLocked)) {
+      state.webLocked = status.web_locked;
+      route();
+    }
     const count = status.player_count || 0;
     pillStatus.replaceChildren(
       h('i', { class: 'dot ' + (status.online ? 'on' : 'off') }),
@@ -492,6 +535,13 @@
       if (seq === renderSeq) app.replaceChildren(view);
       return;
     }
+    if (lockedOut()) {
+      renderChrome(null);
+      document.title = `Gesperrt · ${CONFIG.serverName}`;
+      app.replaceChildren(lockedView());
+      state.refreshTimer = setTimeout(checkUnlocked, 30000);
+      return;
+    }
     let page = currentPage();
     const pages = allowedPages();
     if (!pages.includes(page)) {
@@ -511,7 +561,7 @@
       }
     } catch (error) {
       if (seq !== renderSeq) return;
-      if (error.sessionExpired) {
+      if (error.sessionExpired || error.webLocked) {
         handleError(error);
         return;
       }
@@ -1756,6 +1806,7 @@
     return h('div', {},
       pageHead('Admin', 'Server-Verwaltung', 'Befehle gehen über die Website an den Server, die Antwort der Konsole steht unten. Vorschläge und Abstimmungen bearbeitest du auf ihren Seiten.'),
       h('div', { class: 'grid' }, adminServerCard(server), adminCountdownCard()),
+      adminAccessCard(server),
       adminPlayersCard(server, inventories),
       h('div', { class: 'grid', style: 'margin-top:16px' }, adminWorldCard(), adminPunishCard()),
       adminInventoryCard(inventories),
@@ -1791,6 +1842,23 @@
         `Läuft seit ${uptime(d.uptime_min)} · ${d.chunks} Chunks · ${d.entities} Entities`),
       h('p', { class: 'faint small', style: 'margin-top:4px' },
         [server.version ? `Minecraft ${server.version}` : null, server.updated_at ? `Stand ${formatDate(server.updated_at)}` : null].filter(Boolean).join(' · ')));
+  }
+
+  // lock the website for everyone but the admins, or open it again; logged-in players get a "locked" page meanwhile
+  function adminAccessCard(server) {
+    const locked = Boolean(server.web_locked);
+    const toggle = (event) => act(event.currentTarget, () => rpc('admin_set_web_lock', { p_token: state.token, p_locked: !locked }),
+      locked ? 'Die Website ist wieder für alle offen.' : 'Die Website ist jetzt für alle außer Admins gesperrt.');
+    return h('div', { class: 'card thick', style: 'margin-top:16px' },
+      h('div', { class: 'row' },
+        h('div', { class: 'stack', style: 'gap:4px' },
+          h('p', { class: 'eyebrow' }, 'Website-Zugang'),
+          h('div', { class: 'status-line' }, h('i', { class: 'dot ' + (locked ? 'off' : 'on') }),
+            locked ? 'Gesperrt: nur Admins kommen hinein' : 'Offen für alle Spieler')),
+        h('span', { class: 'spacer' }),
+        locked
+          ? h('button', { class: 'btn primary', onclick: toggle }, 'Für alle entsperren')
+          : h('button', { class: 'btn danger', onclick: toggle }, 'Für alle sperren')));
   }
 
   function uptime(minutes) {
@@ -2435,8 +2503,12 @@
     if (state.token) {
       try {
         const me = await rpc('session_info', { p_token: state.token });
-        if (me) state.me = me;
-        else clearSession();
+        if (me) {
+          state.me = me;
+          state.webLocked = Boolean(me.web_locked);
+        } else {
+          clearSession();
+        }
       } catch (error) {
         toast(error.message, 'error');
       }
