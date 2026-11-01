@@ -22,7 +22,7 @@ window.PORTAL_CONFIG = {
     'Sprachchat: Mod „Simple Voice Chat“ installieren, dann funktioniert er automatisch.',
     'Nether und End können zeitweise gesperrt sein.',
     'Backups laufen alle 30 Minuten. Neustarts um 0, 6, 12 und 18 Uhr, vorher Countdown im Spiel.',
-    'Rucksäcke: /rucksack zeigt die Rezepte. Klein (9 Plätze), mit Eisen 27, mit Diamanten 54 – der Inhalt bleibt beim Aufwerten drin.',
+    'Rucksäcke: /rucksack zeigt die Rezepte. Klein (9 Plätze), mit Eisen 27, mit Diamanten 54 – der Inhalt bleibt beim Aufwerten drin. Jeder kann bis zu 2 Rucksäcke dabeihaben.',
     'Pfeilmacher kaufen ab Stufe Lehrling 17 Knochenmehl für 1 Smaragd statt Feuerstein.',
     'Börse im Spiel: Neue Angebote und Post zu deinen Handeln kommen als Chat-Nachricht mit Ton. Für die Töne beim Beitreten das Server-Ressourcenpaket annehmen.'
   ]
