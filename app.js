@@ -210,6 +210,8 @@
       const error = new Error((data && data.message) || `Fehler ${response.status}`);
       error.sessionExpired = error.message.startsWith('Bitte melde dich');
       error.webLocked = error.message.startsWith('Die Website ist gerade gesperrt');
+      // the lock shows as a plain loading error, also on the login page (423 = locked)
+      if (error.webLocked) error.message = LOCKED_TEXT;
       throw error;
     }
     return data;
@@ -321,14 +323,15 @@
 
   // ---------------------------------------------------------------- Website gesperrt
 
-  // an admin can lock the website for everyone else (admin page); players stay logged in and get back in afterwards
+  // an admin can lock the website for everyone else (admin page); players stay logged in and get back in afterwards.
+  // Everyone else just sees a loading error, the word "gesperrt" appears only for admins.
   const lockedOut = () => Boolean(state.me && state.webLocked && !state.me.is_admin);
+  const LOCKED_TEXT = 'Fehler beim Laden der Daten (Fehler 423). Bitte später noch einmal versuchen.';
 
   function lockedView() {
     return h('div', { class: 'card thick' },
-      h('p', { class: 'eyebrow' }, 'Website gesperrt'),
-      h('div', { class: 'notice caution', style: 'margin-top:12px' }, h('i'),
-        h('span', {}, h('b', {}, 'Die Website ist gerade gesperrt. '), 'Sobald ein Admin sie wieder freigibt, geht es hier von selbst weiter.')),
+      h('div', { class: 'notice alert' }, h('i'),
+        h('span', {}, h('b', {}, 'Fehler beim Laden der Daten. '), 'Die Daten konnten nicht geladen werden (Fehler 423). Bitte später noch einmal versuchen.')),
       h('div', { class: 'row', style: 'margin-top:16px' }, h('button', { class: 'btn small ghost', onclick: logout }, 'Abmelden')));
   }
 
@@ -344,7 +347,6 @@
     } else if (me && !me.web_locked) {
       state.me = me;
       state.webLocked = false;
-      toast('Die Website ist wieder offen.', 'ok');
       route();
     } else {
       state.refreshTimer = setTimeout(checkUnlocked, 30000);
@@ -537,7 +539,7 @@
     }
     if (lockedOut()) {
       renderChrome(null);
-      document.title = `Gesperrt · ${CONFIG.serverName}`;
+      document.title = `Fehler · ${CONFIG.serverName}`;
       app.replaceChildren(lockedView());
       state.refreshTimer = setTimeout(checkUnlocked, 30000);
       return;
