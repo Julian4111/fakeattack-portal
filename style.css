@@ -631,6 +631,13 @@ details.card[open] > summary::after { content: "\2212"; }
 .time-input p { min-height: 40px; display: flex; align-items: center; }
 @media (max-width: 520px) { .admin-countdown { grid-template-columns: 1fr; } }
 .admin-countdown .span-2 { grid-column: 1 / -1; }
+/* Mob-Spawner: eine Zeile je Spawner, darunter klappt das Formular auf */
+.spawner { padding: 12px 0; }
+.spawner + .spawner, .spawners > .spawner:first-child { border-top: 1px solid var(--line); }
+.spawner > summary { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; cursor: pointer; list-style: none; }
+.spawner > summary::-webkit-details-marker { display: none; }
+.spawner .form-grid { margin-top: 12px; }
+.spawner textarea.mono { min-height: 96px; font: 14px var(--mono); font-stretch: 85%; }
 .admin-inline { display: flex; gap: 8px; }
 .admin-inline input { flex: 1; min-width: 0; }
 input.mono { font: 14px var(--mono); font-stretch: 85%; }

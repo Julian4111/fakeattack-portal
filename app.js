@@ -1793,10 +1793,12 @@
   // ---------------------------------------------------------------- Admin
 
   async function renderAdmin() {
-    const [server, appeals, inventories] = await Promise.all([
+    const [server, appeals, inventories, spawners] = await Promise.all([
       rpc('admin_server', { p_token: state.token }),
       rpc('admin_list_appeals', { p_token: state.token }),
-      rpc('admin_inventories', { p_token: state.token })
+      rpc('admin_inventories', { p_token: state.token }),
+      // null until the spawner SQL is in the database; the rest of the page works without it
+      rpc('admin_spawners', { p_token: state.token }).catch(() => null)
     ]);
     const pending = appeals.filter((a) => a.status === 'pending').length;
     const waiting = server.commands.some((c) => c.status === 'pending' || c.status === 'running');
@@ -1809,6 +1811,7 @@
       adminAccessCard(server),
       adminPlayersCard(server, inventories),
       h('div', { class: 'grid', style: 'margin-top:16px' }, adminWorldCard(), adminPunishCard()),
+      adminSpawnerCard(spawners),
       adminInventoryCard(inventories),
       adminConsoleCard(server),
       h('div', { class: 'row section-label' }, h('p', { class: 'eyebrow' }, 'Ban-Einsprüche'),
@@ -2074,6 +2077,86 @@
         action('Bannen …', (b, n) => punish(b, 'ban', n, 'Bann'), 'danger')),
       h('div', { class: 'row', style: 'margin-top:12px' },
         h('button', { class: 'btn small ghost', onclick: (event) => sendCommand(event.currentTarget, 'banlist') }, 'Bann-Liste anzeigen')));
+  }
+
+  // the mobs a spawner may make, same list as portal.spawner_mobs() in the database
+  const SPAWNER_MOBS = {
+    creeper: 'Creeper', zombie: 'Zombie', skeleton: 'Skelett', spider: 'Spinne', cave_spider: 'Höhlenspinne', enderman: 'Enderman',
+    witch: 'Hexe', slime: 'Schleim', magma_cube: 'Magmawürfel', blaze: 'Lohe', husk: 'Wüstenzombie', stray: 'Eiswanderer',
+    drowned: 'Ertrunkener', zombified_piglin: 'Zombifizierter Piglin', iron_golem: 'Eisengolem', cow: 'Kuh', sheep: 'Schaf',
+    pig: 'Schwein', chicken: 'Huhn', rabbit: 'Kaninchen'
+  };
+  const SPAWNER_WORLDS = { overworld: 'Oberwelt', the_nether: 'Nether', the_end: 'End' };
+
+  // mobs at fixed points while a player is around; the server picks up changes within 15 seconds
+  function adminSpawnerCard(spawners) {
+    const card = h('div', { class: 'card thick', style: 'margin-top:16px' });
+    const list = h('div', { class: 'spawners' });
+    card.append(
+      h('div', { class: 'row' }, h('p', { class: 'eyebrow' }, 'Mob-Spawner'), h('span', { class: 'spacer' }),
+        spawners ? h('button', { class: 'btn small', onclick: () => { list.querySelector('.faint')?.remove(); list.prepend(spawnerEditor(null)); } }, 'Neuer Spawner') : null),
+      h('p', { class: 'faint small', style: 'margin-top:10px' },
+        'An festen Punkten erscheint alle paar Sekunden ein Mob, solange ein Spieler im Umkreis ist – ohne Meldung im Chat. Änderungen kommen innerhalb von 15 Sekunden auf dem Server an.'));
+    if (!spawners) {
+      card.append(h('div', { class: 'notice caution', style: 'margin-top:12px' }, h('i'), h('span', {}, 'Noch nicht eingerichtet: Das SQL für die Mob-Spawner fehlt in Supabase.')));
+      return card;
+    }
+    list.append(...(spawners.length ? spawners.map((s) => spawnerEditor(s)) : [h('p', { class: 'faint small', style: 'margin-top:10px' }, 'Noch keine Spawner.')]));
+    card.append(list);
+    return card;
+  }
+
+  // one spawner: the line shows what it does, opening it shows the form; null makes a new one (already open)
+  function spawnerEditor(spawner) {
+    const s = spawner || { name: '', enabled: true, dimension: 'overworld', points: [], mob: 'creeper', interval_seconds: 15, radius: 48, max_mobs: 25 };
+    const field = (label, control, wide) => h('div', { class: wide ? 'span-2' : null }, h('label', {}, label), control);
+    const number = (value, min, max) => h('input', { type: 'number', value: String(value), min: String(min), max: String(max), inputmode: 'numeric' });
+    const name = h('input', { value: s.name, maxlength: '40', placeholder: 'z. B. Creeperfarm' });
+    const mob = h('select', {}, Object.entries(SPAWNER_MOBS).map(([id, label]) => h('option', { value: id, selected: id === s.mob }, label)));
+    const world = h('select', {}, Object.entries(SPAWNER_WORLDS).map(([id, label]) => h('option', { value: id, selected: id === s.dimension }, label)));
+    const points = h('textarea', { class: 'mono', rows: '4', placeholder: '-596 213 -533\n-583 219 -523' }, s.points.map((p) => p.join(' ')).join('\n'));
+    const interval = number(s.interval_seconds, 1, 3600);
+    const radius = number(s.radius, 8, 128);
+    const max = number(s.max_mobs, 1, 100);
+    const save = (event) => {
+      // "x y z" per line; the comma form from the F3 screen ("-596, 213, -533") works too
+      const parsed = points.value.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => line.split(/[\s,;]+/).map(Number));
+      if (!parsed.length || parsed.some((p) => p.length !== 3 || p.some((n) => !Number.isInteger(n)))) {
+        toast('Punkte bitte als x y z in ganzen Zahlen, eine Zeile pro Punkt.', 'error');
+        return;
+      }
+      act(event.currentTarget, () => rpc('admin_save_spawner', {
+        p_token: state.token, p_id: spawner ? spawner.id : null, p_name: name.value, p_enabled: s.enabled, p_dimension: world.value,
+        p_points: parsed, p_mob: mob.value, p_interval: Number(interval.value), p_radius: Number(radius.value), p_max: Number(max.value)
+      }), 'Gespeichert. Der Server übernimmt es in spätestens 15 Sekunden.');
+    };
+    const toggle = (event) => {
+      // the button sits in the summary: it must not open or close the form
+      event.preventDefault();
+      act(event.currentTarget, () => rpc('admin_set_spawner_enabled', { p_token: state.token, p_id: spawner.id, p_enabled: !s.enabled }),
+        s.enabled ? `${s.name} ist aus.` : `${s.name} ist an.`);
+    };
+    const remove = (event) => {
+      if (confirm(`Spawner „${s.name}“ löschen?`)) act(event.currentTarget, () => rpc('admin_delete_spawner', { p_token: state.token, p_id: spawner.id }), 'Spawner gelöscht.');
+    };
+    const summary = spawner
+      ? h('summary', {},
+        h('div', { class: 'status-line' }, h('i', { class: 'dot ' + (s.enabled ? 'on' : 'off') }), h('b', {}, s.name)),
+        h('span', { class: 'faint small' }, [SPAWNER_MOBS[s.mob] || s.mob, `${s.points.length} ${s.points.length === 1 ? 'Punkt' : 'Punkte'}`,
+          `alle ${s.interval_seconds} s`, `Umkreis ${s.radius}`, `höchstens ${s.max_mobs}`, SPAWNER_WORLDS[s.dimension]].join(' · ')),
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn small' + (s.enabled ? ' danger' : ' primary'), type: 'button', onclick: toggle }, s.enabled ? 'Ausschalten' : 'Einschalten'))
+      : h('summary', {}, h('b', {}, 'Neuer Spawner'));
+    return h('details', { class: 'spawner', open: !spawner },
+      summary,
+      h('div', { class: 'form-grid' },
+        field('Name', name), field('Mob', mob),
+        field('Punkte (x y z, eine Zeile pro Punkt)', points, true),
+        field('Alle … Sekunden (an jedem Punkt ein Mob)', interval), field('Welt', world),
+        field('Umkreis: nur wenn ein Spieler so nah ist (Blöcke)', radius), field('Höchstens so viele Mobs im Umkreis', max),
+        h('div', { class: 'row span-2' },
+          h('button', { class: 'btn primary', type: 'button', onclick: save }, 'Speichern'),
+          spawner ? h('button', { class: 'btn danger', type: 'button', onclick: remove }, 'Löschen') : null)));
   }
 
   // which player's inventory is open; kept while the page refreshes
