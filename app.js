@@ -1921,6 +1921,7 @@
       duration: '1m', placeholder: 'z. B. 10m, 2h', clock: nextFullHour(1), openText: 'Wird in den Ansagen nicht genannt.'
     });
     const reason = h('input', { maxlength: '120', placeholder: 'Grund, z. B. Plugin-Update', 'aria-label': 'Grund' });
+    const silent = h('input', { type: 'checkbox' });
     const start = h('button', { class: 'btn primary', type: 'submit' }, 'Countdown starten');
     const message = h('input', { maxlength: '200', placeholder: 'Nachricht an alle Spieler', 'aria-label': 'Nachricht an alle' });
     const send = h('button', { class: 'btn', type: 'submit' }, 'Senden');
@@ -1940,9 +1941,10 @@
             toast('Wie lange offline: eine Dauer wie 10m oder 2h, eine Uhrzeit oder „Offen“.', 'error');
             return;
           }
-          const command = [kind.value, at, back, reason.value.trim()].filter(Boolean).join(' ');
+          // "still" goes right after the time: ServerCountdown then announces nothing before the last minute
+          const command = [kind.value, at, silent.checked ? 'still' : null, back, reason.value.trim()].filter(Boolean).join(' ');
           const what = kind.value === 'shutdown' ? 'Server stoppen' : 'Server neu starten';
-          if (confirm(`${what} ${when.mode() === 'uhrzeit' ? `um ${at} Uhr` : `in ${at}`}?`)) {
+          if (confirm(`${what} ${when.mode() === 'uhrzeit' ? `um ${at} Uhr` : `in ${at}`}${silent.checked ? ', still (Countdown erst in der letzten Minute)' : ''}?`)) {
             sendCommand(start, command, 'Gesendet. Die Antwort steht unten in der Konsole.');
           }
         }
@@ -1951,8 +1953,9 @@
       when.el,
       down.el,
       h('div', {}, h('label', {}, 'Grund'), reason),
+      h('label', { class: 'login-spot-check span-2' }, silent, 'Still: vorher keine Ansage, der Countdown erscheint erst in der letzten Minute'),
       h('p', { class: 'faint small span-2' }, 'Bis eine Stunde voraus startet der Countdown sofort. Später wird es geplant (bis 24 Stunden), ' +
-        'der Countdown beginnt dann eine Stunde vorher und übersteht auch einen Neustart.'),
+        'der Countdown beginnt dann eine Stunde vorher und übersteht auch einen Neustart. Still geplant erfährt niemand davon bis zur letzten Minute.'),
       h('div', { class: 'row span-2', style: 'flex-wrap:wrap;gap:8px' }, start,
         h('button', { class: 'btn danger', type: 'button', onclick: (event) => sendCommand(event.currentTarget, 'countdown cancel', 'Abbrechen gesendet.') },
           'Countdown abbrechen'),
