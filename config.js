@@ -23,6 +23,7 @@ window.PORTAL_CONFIG = {
     'Nether und End können zeitweise gesperrt sein.',
     'Backups laufen alle 30 Minuten. Neustarts um 0, 6, 12 und 18 Uhr, vorher Countdown im Spiel.',
     'Rucksäcke: /rucksack zeigt die Rezepte. Klein (9 Plätze), mit Eisen 27, mit Diamanten 54 – der Inhalt bleibt beim Aufwerten drin.',
-    'Pfeilmacher kaufen ab Stufe Lehrling 17 Knochenmehl für 1 Smaragd statt Feuerstein.'
+    'Pfeilmacher kaufen ab Stufe Lehrling 17 Knochenmehl für 1 Smaragd statt Feuerstein.',
+    'Börse im Spiel: Neue Angebote und Post zu deinen Handeln kommen als Chat-Nachricht mit Ton. Für die Töne beim Beitreten das Server-Ressourcenpaket annehmen.'
   ]
 };

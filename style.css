@@ -439,8 +439,8 @@ input[type="datetime-local"] { color-scheme: dark; }
 
 /* Bestenliste und eigene Statistik: jede Kategorie hat ihre Farbe (--tone, gesetzt im Element) fuer Balken, Punkt und
    Hintergrund des Ersten; die Zahlen bleiben weiss. Die acht Farben sind in ihrer festen Reihenfolge (app.js,
-   STAT_CATEGORIES) gegen den dunklen Hintergrund und fuer Farbsehschwaeche geprueft; die neunte Kategorie (Distanz)
-   bekommt das neutrale Grau. */
+   STAT_CATEGORIES) gegen den dunklen Hintergrund und fuer Farbsehschwaeche geprueft; alle Kategorien ab der neunten
+   (Distanz, Handel, Diamanten, Totems, Fortschritte) bekommen das neutrale Grau. */
 .board { margin-top: 16px; display: grid; gap: 16px; }
 .board > .section-label { margin: 0; }
 .board-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }

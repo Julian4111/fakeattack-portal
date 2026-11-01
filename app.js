@@ -655,7 +655,7 @@
 
   // The categories, each with its own colour (always shown with its title). Colours in this fixed order are
   // checked against the dark background and for colour blindness; keep the order when adding or moving one.
-  // The palette has eight colours: a ninth category gets the neutral grey, never a made-up colour.
+  // The palette has eight colours: every category after the eighth gets the neutral grey, never a made-up colour.
   // mixedUnits: the unit changes with the value (Min./Std., m/km), so short lists show it too.
   const STAT_CATEGORIES = [
     { key: 'minutes', label: 'Spielzeit', top: 'Meiste Spielzeit', color: '#3987e5', format: splitTime, mixedUnits: true },
@@ -666,7 +666,11 @@
     { key: 'mined', label: 'Blöcke abgebaut', top: 'Meiste Blöcke abgebaut', color: '#008300', format: counted('Block', 'Blöcke') },
     { key: 'placed', label: 'Blöcke platziert', top: 'Meiste Blöcke platziert', color: '#9085e9', format: counted('Block', 'Blöcke') },
     { key: 'tnt', label: 'TNT gesprengt', top: 'Meistes TNT gesprengt', color: '#e66767', format: counted('TNT', 'TNT') },
-    { key: 'distance', label: 'Distanz gereist', top: 'Am weitesten gereist', color: '#8A9099', format: splitDistance, mixedUnits: true }
+    { key: 'distance', label: 'Distanz gereist', top: 'Am weitesten gereist', color: '#8A9099', format: splitDistance, mixedUnits: true },
+    { key: 'trades', label: 'Dorfbewohner-Handel', top: 'Meiste Dorfbewohner-Handel', color: '#8A9099', format: counted('Handel', 'Handel') },
+    { key: 'diamonds', label: 'Diamanterz abgebaut', top: 'Meiste Diamanterze abgebaut', color: '#8A9099', format: counted('Erz', 'Erze') },
+    { key: 'totems', label: 'Totems ausgelöst', top: 'Meiste Totems ausgelöst', color: '#8A9099', format: counted('Totem', 'Totems') },
+    { key: 'advancements', label: 'Fortschritte', top: 'Meiste Fortschritte', color: '#8A9099', format: counted('Fortschritt', 'Fortschritte') }
   ];
 
   const smallValue = (cat, value) => {
