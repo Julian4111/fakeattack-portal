@@ -1793,12 +1793,13 @@
   // ---------------------------------------------------------------- Admin
 
   async function renderAdmin() {
-    const [server, appeals, inventories, spawners] = await Promise.all([
+    const [server, appeals, inventories, spawners, loginSpots] = await Promise.all([
       rpc('admin_server', { p_token: state.token }),
       rpc('admin_list_appeals', { p_token: state.token }),
       rpc('admin_inventories', { p_token: state.token }),
-      // null until the spawner SQL is in the database; the rest of the page works without it
-      rpc('admin_spawners', { p_token: state.token }).catch(() => null)
+      // null until their SQL is in the database; the rest of the page works without it
+      rpc('admin_spawners', { p_token: state.token }).catch(() => null),
+      rpc('admin_login_spawns', { p_token: state.token }).catch(() => null)
     ]);
     const pending = appeals.filter((a) => a.status === 'pending').length;
     const waiting = server.commands.some((c) => c.status === 'pending' || c.status === 'running');
@@ -1812,7 +1813,7 @@
       adminPlayersCard(server, inventories),
       h('div', { class: 'grid', style: 'margin-top:16px' }, adminWorldCard(), adminPunishCard()),
       adminSpawnerCard(spawners),
-      adminInventoryCard(inventories),
+      adminInventoryCard(inventories, loginSpots),
       adminConsoleCard(server),
       h('div', { class: 'row section-label' }, h('p', { class: 'eyebrow' }, 'Ban-Einsprüche'),
         h('span', { class: 'badge ' + (pending ? 'pending' : '') }, `${pending} offen`)),
@@ -2170,7 +2171,47 @@
     }
   }
 
-  function adminInventoryCard(list) {
+  // the world names of the inventory snapshot (Bukkit) as the database writes them
+  const DIMENSION_OF = { normal: 'overworld', nether: 'the_nether', the_end: 'the_end' };
+
+  // where the player turns up the next time they join, or right away when online; starts at their last known spot
+  function loginSpotForm(snap, pending) {
+    const s = (snap.data && snap.data.stats) || {};
+    const start = pending || { dimension: DIMENSION_OF[s.world] || 'overworld', x: s.x, y: s.y, z: s.z, surface: false };
+    const world = h('select', { 'aria-label': 'Welt' },
+      Object.entries(SPAWNER_WORLDS).map(([id, label]) => h('option', { value: id, selected: id === start.dimension }, label)));
+    const coord = (value, label) => h('input', { type: 'number', class: 'mono', value: value == null ? '' : String(value), 'aria-label': label, placeholder: label });
+    const x = coord(start.x, 'x');
+    const y = coord(start.y, 'y');
+    const z = coord(start.z, 'z');
+    const surface = h('input', { type: 'checkbox', checked: Boolean(start.surface) });
+    const set = (event) => {
+      const values = [x, y, z].map((input) => Number(input.value));
+      if ([x, y, z].some((input) => input.value.trim() === '') || values.some((v) => !Number.isInteger(v))) {
+        toast('Bitte x, y und z als ganze Zahlen angeben.', 'error');
+        return;
+      }
+      act(event.currentTarget, () => rpc('admin_set_login_spawn', {
+        p_token: state.token, p_uuid: snap.uuid, p_name: snap.name, p_dimension: world.value,
+        p_x: values[0], p_y: values[1], p_z: values[2], p_surface: surface.checked
+      }), `Gesetzt. Ist ${snap.name} online, wird er in wenigen Sekunden versetzt, sonst beim nächsten Betreten.`);
+    };
+    const clear = (event) => act(event.currentTarget, () => rpc('admin_clear_login_spawn', { p_token: state.token, p_uuid: snap.uuid }), 'Login-Ort zurückgenommen.');
+    return h('div', { class: 'card thick login-spot' },
+      h('p', { class: 'eyebrow' }, 'Login-Ort'),
+      pending
+        ? h('div', { class: 'notice caution', style: 'margin-top:10px' }, h('i'), h('span', {}, h('b', {}, 'Wartet: '),
+          `${SPAWNER_WORLDS[pending.dimension]} ${pending.x} ${pending.surface ? '(Oberfläche)' : pending.y} ${pending.z}, gesetzt von ${pending.created_by}. Kommt, sobald ${snap.name} online ist.`))
+        : h('p', { class: 'faint small', style: 'margin-top:8px' },
+          `Hier erscheint ${snap.name} beim nächsten Betreten, und wer online ist, wird gleich versetzt. Vorausgefüllt mit dem letzten Standort.`),
+      h('div', { class: 'login-spot-fields' }, world, x, y, z),
+      h('label', { class: 'login-spot-check' }, surface, 'Auf die Oberfläche: auf den höchsten Block an dieser Stelle'),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary small', type: 'button', onclick: set }, 'Login-Ort setzen'),
+        pending ? h('button', { class: 'btn small ghost', type: 'button', onclick: clear }, 'Zurücknehmen') : null));
+  }
+
+  function adminInventoryCard(list, loginSpots) {
     const body = h('div');
     const select = h('select', { class: 'admin-pick', 'aria-label': 'Spieler' }, h('option', { value: '' }, 'Spieler wählen …'),
       list.map((p) => h('option', { value: p.uuid, selected: state.adminInventory === p.uuid }, `${p.name} · ${ago(p.updated_at)}`)));
@@ -2184,7 +2225,8 @@
       try {
         const snap = await rpc('admin_inventory', { p_token: state.token, p_uuid: uuid });
         if (state.adminInventory !== uuid) return;
-        body.replaceChildren(snap ? h('div', { style: 'margin-top:14px' }, h('div', { class: 'row' }, head(snap.uuid, 24), h('b', {}, snap.name)), inventoryView(snap))
+        body.replaceChildren(snap ? h('div', { style: 'margin-top:14px' }, h('div', { class: 'row' }, head(snap.uuid, 24), h('b', {}, snap.name)),
+          loginSpots ? loginSpotForm(snap, loginSpots.find((l) => l.mc_uuid === snap.uuid)) : null, inventoryView(snap))
           : h('p', { class: 'muted small', style: 'margin-top:14px' }, 'Für diesen Spieler ist noch kein Inventar gespeichert.'));
       } catch (error) {
         handleError(error);

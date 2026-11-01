@@ -638,6 +638,12 @@ details.card[open] > summary::after { content: "\2212"; }
 .spawner > summary::-webkit-details-marker { display: none; }
 .spawner .form-grid { margin-top: 12px; }
 .spawner textarea.mono { min-height: 96px; font: 14px var(--mono); font-stretch: 85%; }
+/* Login-Ort im Inventar-Bereich der Admin-Seite: Welt und x / y / z in einer Zeile */
+.login-spot { margin-top: 12px; display: grid; gap: 10px; }
+.login-spot-fields { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 520px) { .login-spot-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); } .login-spot-fields select { grid-column: 1 / -1; } }
+.login-spot-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); cursor: pointer; }
+.login-spot-check input { width: 18px; min-height: 18px; height: 18px; padding: 0; accent-color: var(--action-text); }
 .admin-inline { display: flex; gap: 8px; }
 .admin-inline input { flex: 1; min-width: 0; }
 input.mono { font: 14px var(--mono); font-stretch: 85%; }
