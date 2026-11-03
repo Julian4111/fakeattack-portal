@@ -849,14 +849,16 @@
   }
 
   function itemIcon(id) {
+    // a book of the market ("enchanted_book_sharpness_5") looks like every enchanted book
+    const file = String(id).startsWith('enchanted_book_') ? 'enchanted_book' : id;
     const img = h('img', { alt: '', loading: 'lazy', draggable: 'false' });
     let step = 0;
     img.onerror = () => {
       step += 1;
-      if (step < ICON_URLS.length) img.src = ICON_URLS[step](id);
-      else img.replaceWith(h('span', { class: 'slot-text' }, prettyId(id).split(' ').map((word) => word.charAt(0)).join('').slice(0, 3)));
+      if (step < ICON_URLS.length) img.src = ICON_URLS[step](file);
+      else img.replaceWith(h('span', { class: 'slot-text' }, prettyId(file).split(' ').map((word) => word.charAt(0)).join('').slice(0, 3)));
     };
-    img.src = ICON_URLS[0](id);
+    img.src = ICON_URLS[0](file);
     return img;
   }
 
