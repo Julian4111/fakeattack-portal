@@ -722,6 +722,7 @@
     { key: 'trades', label: 'Dorfbewohner-Handel', top: 'Meiste Dorfbewohner-Handel', color: '#8A9099', format: counted('Handel', 'Handel') },
     { key: 'diamonds', label: 'Diamanterz abgebaut', top: 'Meiste Diamanterze abgebaut', color: '#8A9099', format: counted('Erz', 'Erze') },
     { key: 'totems', label: 'Totems ausgelöst', top: 'Meiste Totems ausgelöst', color: '#8A9099', format: counted('Totem', 'Totems') },
+    { key: 'ancient_debris', label: 'Ancient Debris abgebaut', top: 'Meiste Ancient Debris abgebaut', color: '#8A9099', format: counted('Ancient Debris', 'Ancient Debris') },
     { key: 'advancements', label: 'Fortschritte', top: 'Meiste Fortschritte', color: '#8A9099', format: counted('Fortschritt', 'Fortschritte') }
   ];
 
@@ -750,7 +751,7 @@
         first
           ? h('div', { class: 'board-first' }, head(first.uuid, 40),
             h('div', {}, boardValue(cat.format(first.value)), h('span', { class: 'board-name' }, first.name)))
-          : h('p', { class: 'faint small' }, cat.key === 'tnt' ? 'Wird ab jetzt gezählt.' : 'Noch keine Werte.'),
+          : h('p', { class: 'faint small' }, cat.key === 'tnt' || cat.key === 'ancient_debris' ? 'Wird ab jetzt gezählt.' : 'Noch keine Werte.'),
         rest.length ? h('ol', { class: 'board-rest' }, rest.map((entry) =>
           h('li', {}, head(entry.uuid, 18), h('span', { class: 'board-name' }, entry.name), h('span', { class: 'spacer' }),
             smallValue(cat, entry.value)))) : null,
@@ -842,7 +843,7 @@
     const lines = [];
     if (item.kind) lines.push(CONTAINERS[item.kind] + (item.items ? ` · ${item.items.length} Stapel drin` : ''));
     if (item.potion) lines.push('Trank: ' + prettyId(item.potion));
-    for (const [id, level] of item.ench || []) lines.push(`${ENCHANTS[id] || prettyId(id)} ${ROMAN[level] || level}`);
+    for (const [id, level] of item.ench || []) lines.push(`${ENCHANTS[id] || (window.ENCHANT_NAMES || {})[id] || prettyId(id)} ${ROMAN[level] || level}`);
     if (item.max) lines.push(`Haltbarkeit ${item.max - item.dmg} / ${item.max}`);
     return lines;
   }
