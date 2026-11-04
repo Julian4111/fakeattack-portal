@@ -2308,7 +2308,7 @@
   }
 
   // the SQL changes (supabase/migrations) this website needs
-  const SCHEMA_NEEDED = 3;
+  const SCHEMA_NEEDED = 4;
   const clock = (iso) => {
     const d = new Date(iso);
     const today = d.toDateString() === new Date().toDateString();
