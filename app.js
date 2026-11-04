@@ -2406,11 +2406,16 @@
     const remove = (event) => {
       if (confirm(`Spawner „${s.name}“ löschen?`)) act(event.currentTarget, () => rpc('admin_delete_spawner', { p_token: state.token, p_id: spawner.id }), 'Spawner gelöscht.');
     };
+    // with a chunk loader the farm also runs while nobody is near
+    const unattended = (event) => act(event.currentTarget,
+      () => rpc('admin_set_spawner_unattended', { p_token: state.token, p_id: spawner.id, p_on: !s.without_players }),
+      s.without_players ? `${s.name} spawnt wieder nur, wenn jemand in der Nähe ist.` : `${s.name} spawnt jetzt auch ohne Spieler, solange der Chunk geladen ist.`);
     const summary = spawner
       ? h('summary', {},
         h('div', { class: 'status-line' }, h('i', { class: 'dot ' + (s.enabled ? 'on' : 'off') }), h('b', {}, s.name)),
         h('span', { class: 'faint small' }, [SPAWNER_MOBS[s.mob] || s.mob, `${s.points.length} ${s.points.length === 1 ? 'Punkt' : 'Punkte'}`,
-          `alle ${s.interval_seconds} s`, `Umkreis ${s.radius}`, `höchstens ${s.max_mobs}`, SPAWNER_WORLDS[s.dimension]].join(' · ')),
+          `alle ${s.interval_seconds} s`, `Umkreis ${s.radius}`, `höchstens ${s.max_mobs}`, SPAWNER_WORLDS[s.dimension],
+          s.without_players ? 'auch ohne Spieler' : null].filter(Boolean).join(' · ')),
         h('span', { class: 'spacer' }),
         h('button', { class: 'btn small' + (s.enabled ? ' danger' : ' primary'), type: 'button', onclick: toggle }, s.enabled ? 'Ausschalten' : 'Einschalten'))
       : h('summary', {}, h('b', {}, 'Neuer Spawner'));
@@ -2421,6 +2426,10 @@
         field('Punkte (x y z, eine Zeile pro Punkt)', points, true),
         field('Alle … Sekunden (an jedem Punkt ein Mob)', interval), field('Welt', world),
         field('Umkreis: nur wenn ein Spieler so nah ist (Blöcke)', radius), field('Höchstens so viele Mobs im Umkreis', max),
+        spawner ? h('div', { class: 'span-2 row' },
+          h('button', { class: 'btn small' + (s.without_players ? ' primary' : ''), type: 'button', onclick: unattended, 'aria-pressed': s.without_players ? 'true' : 'false' },
+            s.without_players ? 'Auch ohne Spieler: an' : 'Auch ohne Spieler: aus'),
+          h('span', { class: 'faint small' }, 'An: spawnt, sobald der Chunk geladen ist (Chunk-Loader), auch wenn niemand in der Nähe ist. Die Mobs bleiben dann, bis die Farm sie erledigt.')) : null,
         h('div', { class: 'row span-2' },
           h('button', { class: 'btn primary', type: 'button', onclick: save }, 'Speichern'),
           spawner ? h('button', { class: 'btn danger', type: 'button', onclick: remove }, 'Löschen') : null)));
