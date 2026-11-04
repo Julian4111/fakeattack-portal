@@ -14,7 +14,7 @@
 
   const state = {
     token: null, me: null, filter: 'all', refreshTimer: null, renderedAt: 0, dirty: false, pillAt: 0, openThreads: new Set(),
-    market: { view: 'sell', q: '', cat: '', sort: 'new', type: 'all', formOpen: false }, marketPending: 0,
+    market: { view: 'sell', q: '', cat: '', sort: 'new', type: 'all', formOpen: false, shopEdit: null }, marketPending: 0,
     practice: null
   };
   let renderSeq = 0;
@@ -459,7 +459,7 @@
 
   // nothing is re-rendered under the player's hands: no focused or edited field, nothing opened or selected
   function idle() {
-    return document.visibilityState === 'visible' && !state.dirty && tour.index < 0 && !state.practice && !state.market.formOpen
+    return document.visibilityState === 'visible' && !state.dirty && tour.index < 0 && !state.practice && !state.market.formOpen && !state.market.shopEdit
       && !(currentPage() === 'admin' && state.adminInventory)
       && !document.querySelector('#app input:focus, #app textarea:focus, #app select:focus, #app details[open], #app .slot.on, #app dialog[open]');
   }
@@ -1096,17 +1096,19 @@
 
   async function renderMarket() {
     const m = state.market;
+    // the practice Börse has no shops
+    if (state.practice && m.view === 'shops') m.view = 'sell';
     const [list, mine] = await Promise.all([
-      m.view === 'deals' ? [] : rpc('market_list', { p_token: state.token, p_kind: m.view }),
+      m.view === 'deals' || m.view === 'shops' ? [] : rpc('market_list', { p_token: state.token, p_kind: m.view }),
       rpc('market_mine', { p_token: state.token })
     ]);
     setMarketPending(mine.pending);
 
-    const tabs = [['sell', 'Zu verkaufen'], ['buy', 'Gesucht'], ['deals', 'Meine Deals']];
+    const tabs = [['sell', 'Zu verkaufen'], ...(state.practice ? [] : [['shops', 'Shops']]), ['buy', 'Gesucht'], ['deals', 'Meine Deals']];
     const tabBar = h('div', { class: 'filters', role: 'tablist' }, tabs.map(([key, label]) =>
       h('button', {
         class: m.view === key ? 'on' : null, role: 'tab', 'aria-selected': m.view === key ? 'true' : 'false',
-        onclick: () => { m.view = key; m.formOpen = false; refresh(); }
+        onclick: () => { m.view = key; m.formOpen = false; m.shopEdit = null; refresh(); }
       }, label, key === 'deals' && mine.pending ? h('span', { class: 'nav-count' }, mine.pending) : null)));
 
     const lead = 'Kaufen, verkaufen und bestellen. Bezahlt wird in Diamanten, übergeben im Spiel.';
@@ -1118,6 +1120,7 @@
     if (m.view === 'deals') {
       return h('div', {}, pageHead('Item-Börse', 'Börse', lead), practiceBanner, tabsRow, marketDeals(mine));
     }
+    if (m.view === 'shops') return renderShops(lead, practiceBanner, tabsRow);
     const form = listingForm(m.view);
     const toggle = h('button', {
       class: 'btn diamond', 'aria-expanded': m.formOpen ? 'true' : 'false',
@@ -1378,7 +1381,8 @@
 
     const top = h('div', { class: 'deal-head' },
       head(d.partner_uuid, 32),
-      h('div', { class: 'deal-title' }, h('h3', {}, amount(d.listing.quantity, d.listing.title)), h('p', { class: 'muted small' }, dealRole(d))),
+      h('div', { class: 'deal-title' }, h('h3', {}, amount(d.listing.quantity, d.listing.title)),
+        h('p', { class: 'muted small' }, dealRole(d) + (d.listing.shop ? ` · Shop „${d.listing.shop}“` : ''))),
       myTurn ? h('span', { class: 'badge caution' }, 'Du bist dran') : null,
       d.status === 'agreed' ? h('span', { class: 'badge ok' }, 'Übergabe offen') : null,
       d.escrow && d.escrow.locked && d.escrow.inside ? h('span', { class: 'badge ok' }, 'Abholen') : null,
@@ -1491,6 +1495,245 @@
           }
         }
       }, 'Zurückziehen') : null);
+  }
+
+  // ---------------------------------------------------------------- Shops (Karteikarten auf der Börse)
+
+  // tab colours of the index cards, same list as market_shops.color in the database
+  const SHOP_COLORS = [['rot', 'Rot'], ['orange', 'Orange'], ['gelb', 'Gelb'], ['gruen', 'Grün'], ['tuerkis', 'Türkis'],
+    ['blau', 'Blau'], ['lila', 'Lila'], ['pink', 'Pink']];
+  const SHOP_MAX = 3;
+  const SHOP_PRODUCTS_MAX = 12;
+  // PostgREST answers like this until the shop functions are in the database
+  const missingFunction = (error) => /could not find the function|schema cache/i.test(error && error.message || '');
+
+  async function renderShops(lead, practiceBanner, tabsRow) {
+    const m = state.market;
+    let list;
+    try {
+      list = await rpc('shop_list', { p_token: state.token });
+    } catch (error) {
+      if (!missingFunction(error)) throw error;
+      return h('div', {}, pageHead('Item-Börse', 'Börse', lead), practiceBanner, tabsRow,
+        h('div', { class: 'notice caution' }, h('i'), h('span', {}, h('b', {}, 'Die Shops werden gerade eingerichtet. '),
+          'Schau in ein paar Minuten nochmal vorbei.')));
+    }
+    const mine = list.filter((shop) => shop.mine);
+    const editing = m.shopEdit === 'new' ? null : list.find((shop) => shop.id === m.shopEdit && shop.mine);
+    if (m.shopEdit !== 'new' && !editing) m.shopEdit = null;
+    const open = mine.length < SHOP_MAX ? h('button', {
+      class: 'btn diamond', onclick: () => { m.shopEdit = 'new'; refresh(); }
+    }, icon('plus'), 'Shop eröffnen') : null;
+
+    const board = h('div', { class: 'shop-board' });
+    const count = h('p', { class: 'faint small market-count' });
+    const draw = () => {
+      const q = m.q.trim().toLowerCase();
+      const shown = list.filter((shop) => !q || [shop.name, shop.slogan, shop.owner, ...shop.products.map((p) => p.title)]
+        .some((text) => (text || '').toLowerCase().includes(q)));
+      count.textContent = shown.length === list.length ? `${list.length} Shop${list.length === 1 ? '' : 's'}` : `${shown.length} von ${list.length}`;
+      board.replaceChildren(...(shown.length ? shown.map(shopCard) : [h('div', { class: 'empty' },
+        list.length ? 'Kein Shop passt. Probier ein anderes Wort.' : 'Noch keine Shops. Eröffne den ersten!')]));
+    };
+    const search = h('input', {
+      class: 'search', type: 'search', value: m.q, 'aria-label': 'Shops durchsuchen',
+      placeholder: 'Shop, Item oder Spieler suchen …', oninput: () => { m.q = search.value; draw(); }
+    });
+    draw();
+    return h('div', {},
+      pageHead('Item-Börse', 'Börse', lead, open),
+      practiceBanner,
+      tabsRow,
+      m.shopEdit ? shopEditor(editing) : null,
+      h('div', { class: 'market-tools one' }, search),
+      count,
+      board);
+  }
+
+  // price on the card: diamonds and items, small and in ink
+  function shopPrice(p) {
+    const parts = [];
+    if (p.price > 0 || !(p.price_items || []).length) {
+      parts.push(p.price === 0 ? h('b', {}, 'gratis') : h('span', { class: 'shop-gems' }, h('b', {}, String(p.price)), icon('gem')));
+    }
+    for (const entry of p.price_items || []) parts.push(h('span', { class: 'shop-pay' }, itemIcon(entry.item), h('b', {}, stackText(entry.amount))));
+    return h('span', { class: 'shop-price', title: priceLabel(p.price, p.price_items) }, parts);
+  }
+
+  function shopCard(shop) {
+    const paused = shop.status !== 'open';
+    const toDeals = () => { state.market.view = 'deals'; refresh(); window.scrollTo(0, 0); };
+    const line = (p) => {
+      let action = null;
+      if (shop.mine) {
+        action = p.deal_count ? h('span', { class: 'shop-note' }, `${p.deal_count} offen`) : null;
+      } else if (p.my_deal) {
+        action = h('button', { class: 'shop-btn', onclick: toDeals, title: 'Du hast das gekauft, die Übergabe läuft' }, 'Zum Deal');
+      } else {
+        action = h('button', {
+          class: 'shop-btn', disabled: paused, title: paused ? 'Der Shop hat gerade geschlossen' : null,
+          onclick: (event) => {
+            if (!confirm(`${amount(p.quantity, p.title)} für ${priceLabel(p.price, p.price_items)} im Shop „${shop.name}“ von ${shop.owner} kaufen? `
+              + 'Danach legt ihr im Spiel mit /handel Ware und Bezahlung in die Handelstruhe.')) return;
+            act(event.currentTarget, async () => {
+              await rpc('market_buy', { p_token: state.token, p_listing_id: p.id });
+              state.market.view = 'deals';
+              window.scrollTo(0, 0);
+            }, 'Gekauft! Der Deal steht unter „Meine Deals“.');
+          }
+        }, 'Kaufen');
+      }
+      return h('li', { class: 'shop-line', 'data-listing': p.id },
+        p.item ? itemIcon(p.item) : h('i', { class: 'shop-bullet' }),
+        h('span', { class: 'shop-item' }, amount(p.quantity, p.title)),
+        h('span', { class: 'shop-leader', 'aria-hidden': 'true' }),
+        h('span', { class: 'shop-buyline' }, shopPrice(p), action));
+    };
+    const own = shop.mine ? h('div', { class: 'shop-own' },
+      h('button', { class: 'shop-btn', onclick: () => { state.market.shopEdit = shop.id; refresh(); window.scrollTo(0, 0); } }, 'Bearbeiten'),
+      h('button', {
+        class: 'shop-btn',
+        onclick: (event) => act(event.currentTarget, () => rpc('shop_set_status', { p_token: state.token, p_id: shop.id, p_status: paused ? 'open' : 'paused' }),
+          paused ? 'Dein Shop ist wieder geöffnet.' : 'Pausiert: Niemand kann kaufen, laufende Übergaben gehen weiter.')
+      }, paused ? 'Öffnen' : 'Pausieren')) : null;
+    const remove = !shop.mine && shop.can_remove ? h('button', {
+      class: 'shop-btn warn',
+      onclick: (event) => {
+        if (confirm(`Shop „${shop.name}“ von ${shop.owner} als Admin entfernen? Laufende Käufe werden abgebrochen.`)) {
+          act(event.currentTarget, () => rpc('shop_set_status', { p_token: state.token, p_id: shop.id, p_status: 'closed' }), 'Shop entfernt.');
+        }
+      }
+    }, 'Entfernen') : null;
+    return h('article', { class: `shop-card c-${shop.color}` + (paused ? ' paused' : ''), 'data-shop': shop.id },
+      h('div', { class: 'shop-tab' }, shop.icon ? itemIcon(shop.icon) : null, h('span', {}, shop.name)),
+      h('div', { class: 'shop-paper' },
+        paused ? h('span', { class: 'shop-stamp' }, 'Geschlossen') : null,
+        h('p', { class: 'shop-slogan' }, shop.slogan || 'Shop von ' + shop.owner),
+        h('ul', { class: 'shop-lines' }, shop.products.length ? shop.products.map(line)
+          : h('li', { class: 'shop-line shop-blank' }, shop.mine ? 'Noch leer: unter „Bearbeiten“ Produkte eintragen.' : 'Noch keine Produkte.')),
+        h('div', { class: 'shop-foot' },
+          head(shop.uuid, 20), h('span', {}, shop.mine ? 'Dein Shop' : shop.owner),
+          h('span', { class: 'spacer' }),
+          shop.sold ? h('span', { class: 'shop-note' }, `${shop.sold}× verkauft`) : null,
+          remove),
+        own));
+  }
+
+  // opening a shop (shop = null) or editing one: name, text, colour, picture and the products
+  function shopEditor(shop) {
+    const m = state.market;
+    let color = shop ? shop.color : 'blau';
+    const name = h('input', { id: 'shop-name', maxlength: '40', required: true, value: shop ? shop.name : '', placeholder: 'z. B. Raketenshop' });
+    const slogan = h('input', { id: 'shop-slogan', maxlength: '160', value: shop ? shop.slogan : '', placeholder: 'z. B. Flugdauer 3, immer auf Lager' });
+    const iconInput = h('input', { id: 'shop-icon', list: 'shop-items', autocomplete: 'off', placeholder: 'z. B. Feuerwerksrakete',
+      value: shop && shop.icon ? itemName({ id: shop.icon }) : '' });
+    const items = h('datalist', { id: 'shop-items' }, [...ITEM_CATEGORY.values()].map((item) => h('option', { value: item.name })));
+    const swatches = h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': 'Farbe des Reiters' });
+    const syncColor = () => {
+      for (const b of swatches.children) {
+        b.classList.toggle('on', b.dataset.color === color);
+        b.setAttribute('aria-checked', b.dataset.color === color ? 'true' : 'false');
+      }
+    };
+    for (const [key, label] of SHOP_COLORS) {
+      swatches.append(h('button', { type: 'button', class: `swatch c-${key}`, role: 'radio', 'data-color': key, title: label, 'aria-label': label,
+        onclick: () => { color = key; syncColor(); } }));
+    }
+    syncColor();
+    const itemId = (text) => {
+      const known = ITEM_CATEGORY.get(text.trim().toLowerCase());
+      return known ? ITEM_IDS[known.name] || null : null;
+    };
+    const save = h('button', { class: 'btn diamond', type: 'submit' }, shop ? 'Speichern' : 'Shop eröffnen');
+    const close = h('button', { class: 'btn small ghost', type: 'button', onclick: () => { m.shopEdit = null; refresh(); } }, shop ? 'Fertig' : 'Abbrechen');
+    const settings = h('form', {
+      onsubmit: (event) => {
+        event.preventDefault();
+        if (iconInput.value.trim() && !itemId(iconInput.value)) {
+          toast(`„${iconInput.value.trim()}“ kenne ich nicht. Bitte ein Item aus der Liste wählen oder leer lassen.`, 'error');
+          return;
+        }
+        act(save, async () => {
+          const id = await rpc('shop_save', { p_token: state.token, p_id: shop ? shop.id : null, p_name: name.value, p_slogan: slogan.value,
+            p_color: color, p_icon: itemId(iconInput.value) });
+          // a new shop stays open in the editor, so the products come right after
+          m.shopEdit = id;
+        }, shop ? 'Gespeichert.' : 'Dein Shop ist offen. Jetzt noch Produkte eintragen!');
+      }
+    },
+    h('div', { class: 'form-grid' },
+      h('div', {}, h('label', { for: 'shop-name' }, 'Name des Shops'), name),
+      h('div', {}, h('label', { for: 'shop-icon' }, 'Bild auf dem Reiter (optional)'), iconInput, items),
+      h('div', { class: 'span-2' }, h('label', { for: 'shop-slogan' }, 'Kurzer Text (optional)'), slogan),
+      h('div', { class: 'span-2' }, h('label', {}, 'Farbe'), swatches)),
+    h('div', { class: 'row shop-editor-row' }, save, h('span', { class: 'spacer' }), close));
+
+    if (!shop) {
+      return h('div', { class: 'card thick market-form shop-editor' }, h('h3', {}, 'Neuer Shop'),
+        h('p', { class: 'faint small' }, `Bis zu ${SHOP_MAX} Shops mit je ${SHOP_PRODUCTS_MAX} Produkten. Jedes Produkt kann man immer wieder kaufen, `
+          + 'die Übergabe läuft wie bei jedem Deal über die Handelstruhe (/handel).'), settings);
+    }
+
+    const productRows = shop.products.map((p) => h('div', { class: 'my-row' },
+      p.item ? h('span', { class: 'shop-row-icon' }, itemIcon(p.item)) : null,
+      h('div', { class: 'my-row-main' }, h('b', {}, amount(p.quantity, p.title)), h('span', { class: 'faint small' }, priceLabel(p.price, p.price_items))),
+      p.deal_count ? h('span', { class: 'faint small' }, `${p.deal_count} offen`) : null,
+      h('button', {
+        class: 'btn small ghost warn',
+        onclick: (event) => {
+          if (confirm(`${amount(p.quantity, p.title)} aus dem Shop nehmen?${p.deal_count ? ' Laufende Käufe werden abgebrochen.' : ''}`)) {
+            act(event.currentTarget, () => rpc('market_close', { p_token: state.token, p_id: p.id }), 'Aus dem Shop genommen.');
+          }
+        }
+      }, 'Entfernen')));
+
+    const title = h('input', { id: 'shop-product', maxlength: '60', list: 'shop-items', autocomplete: 'off', required: true, placeholder: 'z. B. Feuerwerksrakete' });
+    const quantity = h('input', { id: 'shop-qty', type: 'number', min: '1', max: '100000', step: '1', value: '1', required: true, inputmode: 'numeric' });
+    const price = priceEditor({ id: 'shop-price' });
+    const add = h('button', { class: 'btn emerald', type: 'submit', disabled: shop.products.length >= SHOP_PRODUCTS_MAX }, icon('plus'), 'Ins Regal');
+    const productForm = h('form', {
+      onsubmit: (event) => {
+        event.preventDefault();
+        const offer = price.read();
+        if (!offer) return;
+        if (offer.price == null && !offer.items) {
+          toast('Bitte einen Preis angeben: Diamanten, Items oder beides.', 'error');
+          return;
+        }
+        const known = ITEM_CATEGORY.get(title.value.trim().toLowerCase());
+        act(add, () => rpc('shop_add_product', {
+          p_token: state.token, p_shop_id: shop.id, p_title: title.value, p_quantity: Number(quantity.value),
+          p_price: offer.price, p_price_items: offer.items, p_item: known ? ITEM_IDS[known.name] || null : null,
+          p_category: known ? known.cat : null
+        }), 'Ist im Shop.');
+      }
+    },
+    h('div', { class: 'form-grid' },
+      h('div', {}, h('label', { for: 'shop-product' }, 'Item'), title),
+      h('div', {}, h('label', { for: 'shop-qty' }, 'Menge pro Kauf'), quantity),
+      h('div', { class: 'span-2' }, h('label', { for: 'shop-price' }, 'Preis: Diamanten und/oder Items'), price.el)),
+    h('p', { class: 'faint small' }, 'Wer kauft, bekommt genau diese Menge zu diesem Preis. Mit einem Item aus der Liste zählt die Handelstruhe die Ware selbst.'),
+    h('div', { class: 'row' }, add));
+
+    return h('div', { class: 'card thick market-form shop-editor' },
+      h('h3', {}, `„${shop.name}“ bearbeiten`),
+      settings,
+      h('p', { class: 'eyebrow section-label' }, `Produkte (${shop.products.length} von ${SHOP_PRODUCTS_MAX})`),
+      productRows.length ? h('div', { class: 'my-listings' }, productRows) : h('p', { class: 'faint small' }, 'Noch keine Produkte.'),
+      shop.products.length < SHOP_PRODUCTS_MAX ? productForm : null,
+      h('div', { class: 'row shop-editor-row' },
+        h('span', { class: 'spacer' }),
+        h('button', {
+          class: 'btn small ghost warn',
+          onclick: (event) => {
+            if (confirm(`„${shop.name}“ für immer schließen? Alle Produkte verschwinden und laufende Käufe werden abgebrochen.`)) {
+              act(event.currentTarget, async () => {
+                await rpc('shop_set_status', { p_token: state.token, p_id: shop.id, p_status: 'closed' });
+                m.shopEdit = null;
+              }, 'Shop geschlossen.');
+            }
+          }
+        }, 'Shop schließen')));
   }
 
   // ---------------------------------------------------------------- Vorschlaege

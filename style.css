@@ -530,6 +530,89 @@ input[type="datetime-local"] { color-scheme: dark; }
 .my-row + .my-row { border-top: 1px solid var(--line); }
 .my-row-main { flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: 2px; }
 .my-row-main b { overflow-wrap: anywhere; }
+
+/* Shops: Karteikarten. Liniertes Papier mit rotem Rand und einem farbigen Reiter oben; jede Zeile ist 32px hoch,
+   damit Text und Linien uebereinander liegen. Die Karten liegen leicht schief und richten sich beim Zeigen auf. */
+.market-tools.one { grid-template-columns: minmax(0, 1fr); }
+.shop-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(310px, 100%), 1fr)); gap: 30px 22px; margin-top: 14px; align-items: start; }
+.shop-board .empty { grid-column: 1 / -1; }
+.c-rot { --tab: #D2453F; --tab-ink: #fff; }
+.c-orange { --tab: #DD7A2A; --tab-ink: #fff; }
+.c-gelb { --tab: #E2B53A; --tab-ink: #2B2620; }
+.c-gruen { --tab: #3E9B5A; --tab-ink: #fff; }
+.c-tuerkis { --tab: #2A9AA3; --tab-ink: #fff; }
+.c-blau { --tab: #3F6FD6; --tab-ink: #fff; }
+.c-lila { --tab: #8A5CD0; --tab-ink: #fff; }
+.c-pink { --tab: #D4559A; --tab-ink: #fff; }
+.shop-card { --ink: #2B2620; --paper: #F4EDD8; position: relative; padding-top: 32px; transform: rotate(var(--tilt, 0deg)); transition: transform var(--t) var(--ease); }
+.shop-card:nth-child(3n + 1) { --tilt: -.7deg; }
+.shop-card:nth-child(3n + 2) { --tilt: .5deg; }
+.shop-card:nth-child(3n) { --tilt: -.25deg; }
+.shop-card:hover, .shop-card:focus-within { transform: translateY(-3px) rotate(0deg); }
+.shop-tab {
+  position: absolute; top: 0; left: 22px; height: 36px; max-width: calc(100% - 44px);
+  display: flex; align-items: center; gap: 8px; padding: 0 14px 4px;
+  border-radius: 10px 10px 0 0; background: var(--tab); color: var(--tab-ink);
+  font-weight: 700; font-size: 15px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35);
+}
+.shop-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shop-tab img { width: 20px; height: 20px; flex: none; image-rendering: pixelated; }
+.shop-paper {
+  --rule: rgba(64, 110, 175, .3); --margin: rgba(205, 72, 72, .6);
+  position: relative; min-height: 256px; display: flex; flex-direction: column;
+  padding: 0 14px 10px 52px; border-top: 6px solid var(--tab); border-radius: 3px 3px 10px 10px;
+  color: var(--ink); background-color: var(--paper);
+  background-image:
+    linear-gradient(90deg, transparent 38px, var(--margin) 38px, var(--margin) 40px, transparent 40px),
+    repeating-linear-gradient(180deg, transparent 0 31px, var(--rule) 31px 32px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset, 0 2px 0 rgba(0, 0, 0, .18), var(--shadow-sm);
+}
+.shop-slogan { min-height: 32px; margin: 0; line-height: 32px; font-style: italic; color: rgba(43, 38, 32, .78); overflow-wrap: anywhere; }
+.shop-lines { list-style: none; margin: 0; padding: 0; }
+/* a long name wraps onto the next ruled line, and so do price and button when the card is narrow */
+.shop-line { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 0; min-height: 32px; font-size: 14.5px; line-height: 32px; }
+.shop-line > img, .shop-line .slot-text { width: 20px; height: 20px; flex: none; object-fit: contain; image-rendering: pixelated; }
+.shop-line .slot-text { display: grid; place-items: center; font-size: 9px; font-weight: 700; }
+.shop-bullet { width: 6px; height: 6px; margin: 0 7px; border-radius: 50%; background: var(--ink); flex: none; }
+.shop-item { min-width: 0; flex: 0 1 auto; font-weight: 600; overflow-wrap: anywhere; }
+.shop-leader { flex: 1 0 10px; height: 0; margin-top: 12px; border-bottom: 2px dotted rgba(43, 38, 32, .32); }
+.shop-buyline { display: inline-flex; align-items: center; gap: 8px; height: 32px; margin-left: auto; }
+.shop-blank { color: rgba(43, 38, 32, .6); font-style: italic; }
+.shop-price { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font: 700 14px var(--mono); font-stretch: 85%; }
+.shop-gems, .shop-pay { display: inline-flex; align-items: center; gap: 3px; }
+.shop-gems svg { width: 14px; height: 14px; color: #12838F; }
+.shop-pay img, .shop-pay .slot-text { width: 18px; height: 18px; image-rendering: pixelated; }
+.shop-btn {
+  flex: none; height: 26px; padding: 0 10px; border: 1.5px solid var(--ink); border-radius: 6px;
+  background: transparent; color: var(--ink); font: 700 12.5px var(--sans); cursor: pointer;
+  transition: background .2s var(--ease), color .2s var(--ease);
+}
+.shop-btn:hover { background: var(--ink); color: var(--paper); }
+.shop-btn:focus-visible { outline: 2px solid var(--tab); outline-offset: 2px; }
+.shop-btn:disabled { opacity: .4; cursor: default; background: transparent; color: var(--ink); }
+.shop-btn.warn { border-color: #B23A35; color: #B23A35; }
+.shop-btn.warn:hover { background: #B23A35; color: var(--paper); }
+.shop-note { font-size: 12.5px; color: rgba(43, 38, 32, .7); white-space: nowrap; }
+.shop-foot { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-top: auto; padding-top: 6px; font-size: 13px; color: rgba(43, 38, 32, .8); }
+.shop-foot img.head { border-radius: 4px; }
+.shop-own { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 8px; margin-top: 4px; border-top: 1px dashed rgba(43, 38, 32, .3); }
+.shop-stamp {
+  position: absolute; bottom: 52px; right: 16px; padding: 2px 10px; border: 3px solid #B23A35; border-radius: 6px;
+  color: #B23A35; font-weight: 800; font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+  transform: rotate(-11deg); opacity: .82; pointer-events: none; background: rgba(244, 237, 216, .6);
+}
+.shop-card.paused .shop-lines { opacity: .7; }
+.shop-editor .section-label { margin: 22px 0 8px; }
+.shop-editor .my-listings { padding: 0 4px; margin-bottom: 12px; }
+.shop-editor-row { margin-top: 14px; }
+.shop-row-icon img { width: 24px; height: 24px; image-rendering: pixelated; }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch { width: 34px; height: 34px; border-radius: 9px; border: 0; background: var(--tab); cursor: pointer; box-shadow: var(--ring); }
+.swatch.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+.swatch:focus-visible { outline: 2px solid var(--action-text); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .shop-card, .shop-card:nth-child(n) { transform: none; }
+}
 .reply-slot:not(:empty) { margin-top: 8px; }
 .replies { margin-left: 9px; padding-left: 16px; border-left: 2px solid var(--line); }
 .replies.flat { margin-left: 0; padding-left: 0; border-left: 0; }
