@@ -30,6 +30,8 @@
     abstimmungen: { title: 'Abstimmungen', short: 'Umfragen', icon: 'poll', render: renderPolls },
     einspruch: { title: 'Einspruch', short: 'Einspruch', icon: 'shield', render: renderAppeal },
     regeln: { title: 'Regeln', short: 'Regeln', icon: 'book', render: renderRules },
+    // in the nav only for players with a plot (and admins), see loadPlotCount
+    plots: { title: 'Plots', short: 'Plots', icon: 'plot', render: renderPlots, hidden: true },
     admin: { title: 'Admin', short: 'Admin', icon: 'key', render: renderAdmin, admin: true },
     // not in the nav: opened from the player box top right
     konto: { title: 'Konto', short: 'Konto', render: renderAccount, hidden: true }
@@ -50,6 +52,7 @@
     map: '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>',
     chat: '<path d="M4 5h16v11H10l-6 4z"/>',
     gem: '<path d="M7 4h10l4 5-9 11L3 9z"/><path d="M3 9h18M12 20 8.5 9 11 4M12 20l3.5-11L13 4"/>',
+    plot: '<path d="M5 20V8l2.5-3L10 8v12M14 20V8l2.5-3L19 8v12M3 11h18M3 16h18"/>',
     chest: '<path d="M4 9a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v10H4z"/><path d="M4 12h16M11 11h2v3h-2z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
@@ -255,6 +258,7 @@
     state.pillAt = 0;
     toast(`Willkommen, ${result.name}!`, 'ok');
     location.hash = result.banned ? '#/einspruch' : '#/start';
+    if (!result.banned) await Promise.all([loadTutorials(), loadPlotCount()]);
     await route();
   }
 
@@ -1886,6 +1890,88 @@
         }, 'Shop schließen')));
   }
 
+  // ---------------------------------------------------------------- Plots
+
+  const PLOT_ACTIONS = [['break', 'abgebaut'], ['place', 'gebaut'], ['harvest', 'geerntet'], ['take', 'aus Kisten genommen'],
+    ['put', 'in Kisten gelegt'], ['kill', 'Tiere/Mobs getötet'], ['bucket', 'Eimer benutzt']];
+  const PLOT_ACTION_LABEL = Object.fromEntries(PLOT_ACTIONS);
+  const secondsAgo = (at) => ago(new Date(at * 1000).toISOString());
+
+  // the plot link in the nav: only for players who own or share a plot, and for admins
+  async function loadPlotCount() {
+    try {
+      const plots = await rpc('my_plots', { p_token: state.token });
+      PAGES.plots.hidden = !(plots.length || (state.me && state.me.is_admin));
+    } catch {
+      PAGES.plots.hidden = true;
+    }
+  }
+
+  async function renderPlots() {
+    const lead = 'Deine Plots und wer dort in den letzten Tagen etwas gemacht hat. Plots steckt der Admin ab, '
+      + 'wer was darf, stellst du im Spiel mit /plot ein.';
+    let plots;
+    try {
+      plots = await rpc('my_plots', { p_token: state.token });
+    } catch (error) {
+      if (!missingFunction(error)) throw error;
+      return h('div', {}, pageHead('Grundstücke', 'Plots', lead),
+        h('div', { class: 'notice caution' }, h('i'), h('span', {}, h('b', {}, 'Die Plots werden gerade eingerichtet. '), 'Schau später nochmal vorbei.')));
+    }
+    PAGES.plots.hidden = !(plots.length || state.me.is_admin);
+    const mine = plots.filter((p) => p.mine);
+    const others = plots.filter((p) => !p.mine);
+    return h('div', {},
+      pageHead('Grundstücke', 'Plots', lead),
+      plots.length ? null : h('div', { class: 'empty' }, 'Du hast noch keinen Plot. Plots, zum Beispiel für Farmen, vergibt der Admin: frag Julian im Spiel.'),
+      mine.length ? h('div', { class: 'plot-list' }, mine.map(plotCard)) : null,
+      others.length ? h('p', { class: 'eyebrow section-label' }, state.me.is_admin ? 'Alle anderen Plots' : 'Hier bist du Mitglied') : null,
+      others.length ? h('div', { class: 'plot-list' }, others.map(plotCard)) : null);
+  }
+
+  function plotCard(p) {
+    const width = p.max_x - p.min_x + 1;
+    const length = p.max_z - p.min_z + 1;
+    const members = (p.members || []).length
+      ? h('div', { class: 'plot-members' }, p.members.map((m) => h('span', { class: 'plot-member' }, head(m.uuid, 18), m.name)))
+      : h('span', { class: 'faint small' }, 'Keine Mitglieder');
+    const a = p.activity;
+    let activity = null;
+    if (a) {
+      const players = a.players || [];
+      const summary = (counts) => PLOT_ACTIONS.filter(([key]) => counts[key]).map(([key, label]) => `${number(counts[key])} ${label}`).join(' · ');
+      activity = h('div', { class: 'plot-activity' },
+        h('p', { class: 'eyebrow section-label' }, `Wer war hier? Letzte ${a.days || 7} Tage`),
+        players.length ? h('div', {}, players.map((x) => h('div', { class: 'ov-row' + (x.member ? '' : ' plot-outsider') },
+          h('span', { class: 'shop-row-icon' }, head(x.uuid, 24)),
+          h('div', { class: 'my-row-main' }, h('b', {}, x.name),
+            h('span', { class: 'faint small' }, summary(x.counts || {}) || 'nur kleine Dinge')),
+          h('span', { class: 'ov-side' }, h('span', { class: 'badge ' + (x.owner ? 'set' : x.member ? '' : 'pending') },
+            x.owner ? 'Besitzer' : x.member ? 'Mitglied' : 'kein Mitglied'),
+            h('span', { class: 'faint small plot-when' }, secondsAgo(x.last))))))
+          : h('p', { class: 'faint small' }, 'In dieser Zeit hat hier niemand etwas abgebaut, gebaut oder geerntet.'),
+        (a.recent || []).length ? h('div', {},
+          h('p', { class: 'eyebrow section-label' }, 'Zuletzt von Nicht-Mitgliedern'),
+          a.recent.map((e) => h('div', { class: 'ov-row' },
+            e.what ? h('span', { class: 'shop-row-icon' }, itemIcon(e.what)) : null,
+            h('div', { class: 'my-row-main' }, h('b', {}, `${e.name}: ${PLOT_ACTION_LABEL[e.action] || e.action}${e.what ? ` (${itemName({ id: e.what })})` : ''}`),
+              h('span', { class: 'faint small' }, `bei ${e.x} ${e.y} ${e.z}`)),
+            h('span', { class: 'ov-side faint small' }, secondsAgo(e.at)))))
+          : null,
+        h('p', { class: 'faint small' }, `Aus dem Prism-Protokoll des Servers (Stand: ${p.activity_at ? ago(p.activity_at) : 'unbekannt'}). `
+          + 'Wurde etwas zerstört, kann der Admin es zurücksetzen.'));
+    } else if (!p.mine) {
+      activity = h('p', { class: 'faint small' }, state.me.is_admin ? 'Noch keine Aktivität gemeldet.' : 'Du bist Mitglied in diesem Plot.');
+    }
+    return h('article', { class: 'card thick plot-card' },
+      h('div', { class: 'row' }, h('h3', {}, p.name), h('span', { class: 'spacer' }),
+        p.mine ? null : h('span', { class: 'faint small' }, `von ${p.owner}`)),
+      h('p', { class: 'faint small' }, `${p.world === 'world1_nether' ? 'Nether' : p.world === 'world1_the_end' ? 'End' : 'Oberwelt'} · `
+        + `${p.min_x} ${p.min_z} bis ${p.max_x} ${p.max_z} · ${number(width)} × ${number(length)} Blöcke`),
+      h('div', { class: 'row plot-member-row' }, h('span', { class: 'faint small' }, 'Mitglieder:'), members),
+      activity);
+  }
+
   // ---------------------------------------------------------------- Vorschlaege
 
   async function renderSuggestions() {
@@ -2191,13 +2277,15 @@
   // ---------------------------------------------------------------- Admin
 
   async function renderAdmin() {
-    const [server, appeals, inventories, spawners, loginSpots] = await Promise.all([
+    const [server, appeals, inventories, spawners, loginSpots, schema] = await Promise.all([
       rpc('admin_server', { p_token: state.token }),
       rpc('admin_list_appeals', { p_token: state.token }),
       rpc('admin_inventories', { p_token: state.token }),
       // null until their SQL is in the database; the rest of the page works without it
       rpc('admin_spawners', { p_token: state.token }).catch(() => null),
-      rpc('admin_login_spawns', { p_token: state.token }).catch(() => null)
+      rpc('admin_login_spawns', { p_token: state.token }).catch(() => null),
+      // the number of the newest SQL change in the database (0 before 001)
+      rpc('schema_version', {}).catch(() => 0)
     ]);
     const pending = appeals.filter((a) => a.status === 'pending').length;
     const waiting = server.commands.some((c) => c.status === 'pending' || c.status === 'running');
@@ -2207,6 +2295,7 @@
     return h('div', {},
       pageHead('Admin', 'Server-Verwaltung', 'Befehle gehen über die Website an den Server, die Antwort der Konsole steht unten. Vorschläge und Abstimmungen bearbeitest du auf ihren Seiten.'),
       h('div', { class: 'grid' }, adminServerCard(server), adminCountdownCard()),
+      adminRestartCard(server, Number(schema) || 0),
       adminAccessCard(server),
       adminPlayersCard(server, inventories),
       h('div', { class: 'grid', style: 'margin-top:16px' }, adminWorldCard(), adminPunishCard()),
@@ -2216,6 +2305,54 @@
       h('div', { class: 'row section-label' }, h('p', { class: 'eyebrow' }, 'Ban-Einsprüche'),
         h('span', { class: 'badge ' + (pending ? 'pending' : '') }, `${pending} offen`)),
       appeals.length ? appeals.map(appealAdminCard) : h('div', { class: 'empty' }, 'Keine Einsprüche.'));
+  }
+
+  // the SQL changes (supabase/migrations) this website needs
+  const SCHEMA_NEEDED = 3;
+  const clock = (iso) => {
+    const d = new Date(iso);
+    const today = d.toDateString() === new Date().toDateString();
+    return (today ? '' : d.toLocaleDateString('de-DE', { weekday: 'short' }) + ' ')
+      + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+  };
+
+  // what waits for the next restart: plugin updates, new plugins, server.properties, missing SQL; and the last backup
+  function adminRestartCard(server, schema) {
+    const r = (server.details || {}).restart;
+    const need = Math.max(SCHEMA_NEEDED, r ? r.schema_needed || 0 : 0);
+    const rows = [];
+    const row = (iconName, main, sub, tone) => h('div', { class: 'ov-row' + (tone ? ' ' + tone : '') },
+      h('span', { class: 'restart-icon' }, icon(iconName)),
+      h('div', { class: 'my-row-main' }, h('b', {}, main), sub ? h('span', { class: 'faint small' }, sub) : null));
+    if (schema < need) {
+      rows.push(row('key', `SQL fehlt: Nr. ${String(schema + 1).padStart(3, '0')}${need > schema + 1 ? ` bis ${String(need).padStart(3, '0')}` : ''}`,
+        'Auf dem PC tools\\sql-offen.ps1 starten: das fehlende SQL kommt in die Zwischenablage, dann im Supabase-SQL-Editor ausführen. Das geht sofort, ohne Neustart.',
+        'warn'));
+    }
+    if (r) {
+      for (const u of r.updates || []) {
+        rows.push(row('up', `${u.name}: ${u.running ? u.running + ' → ' : ''}${u.version}`, `Update liegt bereit (${u.file}), hochgeladen ${ago(u.since)}`));
+      }
+      for (const p of r.new_plugins || []) {
+        rows.push(row('plus', `${p.name} ${p.version}`, `neues Plugin, startet mit dem Neustart (hochgeladen ${ago(p.since)})`));
+      }
+      if (r.properties_changed) rows.push(row('book', 'server.properties geändert', 'wird erst beim Neustart neu gelesen'));
+    }
+    const b = r && r.backup;
+    const backup = b ? h('p', { class: 'small' + (b.ok ? ' faint' : ' warn-text') }, b.ok
+      ? `Letztes Backup ${b.at ? ago(b.at) : ''}: ${number(b.size_mb)} MB, ${number(b.regions)} Regionsdateien, vollständig. ${b.count} Backups liegen bereit.`
+      : `Backup-Problem: ${b.error || 'unbekannt'}${b.name ? ` (${b.name})` : ''}`) : null;
+    // once a night every file of the newest backup is read and its checksum compared
+    const d = r && r.backup_deep;
+    const deep = d ? h('p', { class: 'small' + (d.ok ? ' faint' : ' warn-text') }, d.ok
+      ? `Gründlich geprüft ${ago(d.checked_at)}: ${d.name}, alle ${number(d.files)} Dateien lesbar und unbeschädigt (${number(d.mb)} MB in ${d.seconds} s).`
+      : `Gründliche Prüfung ${ago(d.checked_at)}: ${d.name} ist beschädigt (${d.error}).`) : null;
+    return h('div', { class: 'card thick restart-card', style: 'margin-top:16px' },
+      h('div', { class: 'row' }, h('h3', {}, 'Wartet auf den Neustart'), h('span', { class: 'spacer' }),
+        r && r.next_restart ? h('span', { class: 'badge' }, `automatisch ${clock(r.next_restart)}`) : null),
+      !r ? h('p', { class: 'faint small' }, 'Der Server meldet das ab WebPortal 1.26.') : null,
+      rows.length ? h('div', {}, rows) : r ? h('p', { class: 'faint small' }, 'Nichts. Alles, was auf dem Server liegt, läuft schon.') : null,
+      backup, deep);
   }
 
   // queue a console command for the server; it picks it up within a few seconds
@@ -2879,12 +3016,42 @@
   ];
   const shopTourKey = () => `fa3-shop-tour-done:${state.me ? state.me.uuid : ''}`;
 
+  // the database remembers finished tutorials per account (my_tutorials), the browser as well: so the shop
+  // tutorial does not come again on the phone; without the database (before its SQL) only the browser counts
+  const tutorialName = (key) => (key === TOUR_KEY ? 'rundgang' : key.startsWith('fa3-shop-tour-done') ? 'shops' : null);
+
+  async function loadTutorials() {
+    try {
+      state.tutorials = await rpc('my_tutorials', { p_token: state.token });
+    } catch {
+      state.tutorials = null;
+      return;
+    }
+    // finished in this browser before the database knew: tell it now
+    for (const key of [TOUR_KEY, shopTourKey()]) {
+      const name = tutorialName(key);
+      let local = false;
+      try { local = localStorage.getItem(key) === '1'; } catch { /* no storage */ }
+      if (local && name && !state.tutorials.includes(name)) {
+        state.tutorials.push(name);
+        rpc('tutorial_done', { p_token: state.token, p_name: name }).catch(() => {});
+      }
+    }
+  }
+
   function tourSeen(key = TOUR_KEY) {
+    const name = tutorialName(key);
+    if (name && Array.isArray(state.tutorials) && state.tutorials.includes(name)) return true;
     try { return localStorage.getItem(key) === '1'; } catch { return false; }
   }
 
   function markTourSeen(key = TOUR_KEY) {
     try { localStorage.setItem(key, '1'); } catch { /* then the offer simply comes back next time */ }
+    const name = tutorialName(key);
+    if (name && state.token) {
+      if (Array.isArray(state.tutorials) && !state.tutorials.includes(name)) state.tutorials.push(name);
+      rpc('tutorial_done', { p_token: state.token, p_name: name }).catch(() => {});
+    }
   }
 
   async function startTour() {
@@ -3103,6 +3270,7 @@
         if (me) {
           state.me = me;
           state.webLocked = Boolean(me.web_locked);
+          if (!me.banned) await Promise.all([loadTutorials(), loadPlotCount()]);
         } else {
           clearSession();
         }

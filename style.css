@@ -883,6 +883,23 @@ input.mono { font: 14px var(--mono); font-stretch: 85%; }
 .ov-row .shop-row-icon { flex: none; }
 .ov-row .shop-row-icon img { width: 24px; height: 24px; border-radius: 4px; }
 .ov-side { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; color: var(--text-2); }
+/* Admin: was auf den Neustart wartet */
+.restart-card h3 { margin: 0; }
+.restart-icon { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--fill); }
+.restart-icon svg { width: 16px; height: 16px; }
+.ov-row.warn b { color: var(--alert); }
+
+/* Plots: Karte pro Plot mit Mitgliedern und wer dort zuletzt etwas gemacht hat */
+.plot-list { display: grid; gap: 16px; margin-top: 14px; }
+.plot-card h3 { margin: 0; }
+.plot-member-row { gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.plot-members { display: flex; flex-wrap: wrap; gap: 6px; }
+.plot-member { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 4px; border-radius: 999px; background: var(--fill); font-size: 0.9em; }
+.plot-member img { width: 18px; height: 18px; border-radius: 3px; }
+.plot-activity .section-label { margin: 18px 0 4px; }
+.plot-outsider b { color: var(--alert); }
+.plot-when { display: block; text-align: right; margin-top: 2px; font-weight: 400; }
+.ov-side .badge { display: inline-block; }
 .ov-switch { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin: 4px 0 6px; border-radius: 12px;
   background: color-mix(in srgb, var(--ok) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
 .ov-switch.off { background: var(--fill); border-color: var(--line); }
