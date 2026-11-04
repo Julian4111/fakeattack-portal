@@ -1354,6 +1354,14 @@
       return h('div', { class: 'notice caution' }, h('i'), h('span', {}, h('b', {}, 'Handelstruhe: '),
         'Der Deal ist abgebrochen. Was du hineingelegt hast, nimmst du im Spiel mit /handel wieder raus.'));
     }
+    // a shop purchase filled from the shop's stock: only the payment is missing
+    if (e.from_shop) {
+      return h('div', { class: 'notice ok' }, h('i'), h('span', {},
+        h('b', {}, `Deal über ${priceLabel(d.price, d.price_items)}. `),
+        giveGoods
+          ? 'Die Ware kam von selbst aus dem Lager deines Shops. Sobald bezahlt ist, liegt die Bezahlung in der Kasse (/handel → dein Shop).'
+          : 'Die Ware liegt schon in der Handelstruhe. Leg im Spiel mit /handel die Bezahlung rein, dann nimmst du sie mit.'));
+    }
     const goods = e.auto ? `${e.goods} von ${e.goods_needed}`
       : e.confirmed ? 'freigegeben' : e.goods_stacks ? `${e.goods_stacks} Stapel, wartet auf Freigabe` : 'noch leer';
     const check = d.listing.item ? 'Die Ware zählt der Server automatisch.'
@@ -1564,6 +1572,11 @@
     const paused = shop.status !== 'open';
     const toDeals = () => { state.market.view = 'deals'; refresh(); window.scrollTo(0, 0); };
     const line = (p) => {
+      // with a stock in the game: how often it can still be bought (null: handed over by hand)
+      const soldOut = p.stock === 0;
+      const stockNote = p.stock == null ? null
+        : h('span', { class: 'shop-note' + (soldOut ? ' out' : ''), title: 'Liegt im Lager des Shops, wird automatisch übergeben' },
+          soldOut ? 'ausverkauft' : `noch ${p.stock}×`);
       let action = null;
       if (shop.mine) {
         action = p.deal_count ? h('span', { class: 'shop-note' }, `${p.deal_count} offen`) : null;
@@ -1571,7 +1584,7 @@
         action = h('button', { class: 'shop-btn', onclick: toDeals, title: 'Du hast das gekauft, die Übergabe läuft' }, 'Zum Deal');
       } else {
         action = h('button', {
-          class: 'shop-btn', disabled: paused, title: paused ? 'Der Shop hat gerade geschlossen' : null,
+          class: 'shop-btn', disabled: paused || soldOut, title: paused ? 'Der Shop hat gerade geschlossen' : soldOut ? 'Gerade nichts im Lager' : null,
           onclick: (event) => {
             if (!confirm(`${amount(p.quantity, p.title)} für ${priceLabel(p.price, p.price_items)} im Shop „${shop.name}“ von ${shop.owner} kaufen? `
               + 'Danach legt ihr im Spiel mit /handel Ware und Bezahlung in die Handelstruhe.')) return;
@@ -1587,7 +1600,7 @@
         p.item ? itemIcon(p.item) : h('i', { class: 'shop-bullet' }),
         h('span', { class: 'shop-item' }, amount(p.quantity, p.title)),
         h('span', { class: 'shop-leader', 'aria-hidden': 'true' }),
-        h('span', { class: 'shop-buyline' }, shopPrice(p), action));
+        h('span', { class: 'shop-buyline' }, stockNote, shopPrice(p), action));
     };
     const own = shop.mine ? h('div', { class: 'shop-own' },
       h('button', { class: 'shop-btn', onclick: () => { state.market.shopEdit = shop.id; refresh(); window.scrollTo(0, 0); } }, 'Bearbeiten'),
@@ -1712,7 +1725,9 @@
       h('div', {}, h('label', { for: 'shop-product' }, 'Item'), title),
       h('div', {}, h('label', { for: 'shop-qty' }, 'Menge pro Kauf'), quantity),
       h('div', { class: 'span-2' }, h('label', { for: 'shop-price' }, 'Preis: Diamanten und/oder Items'), price.el)),
-    h('p', { class: 'faint small' }, 'Wer kauft, bekommt genau diese Menge zu diesem Preis. Mit einem Item aus der Liste zählt die Handelstruhe die Ware selbst.'),
+    h('p', { class: 'faint small' }, 'Wer kauft, bekommt genau diese Menge zu diesem Preis. Leg die Ware vorher im Spiel ins Lager '
+      + '(/handel → dein Shop): Dann füllt der Server jede Bestellung von selbst und die Bezahlung landet in der Kasse. '
+      + 'Das geht für Items aus der Liste.'),
     h('div', { class: 'row' }, add));
 
     return h('div', { class: 'card thick market-form shop-editor' },
