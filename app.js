@@ -14,7 +14,7 @@
 
   const state = {
     token: null, me: null, filter: 'all', refreshTimer: null, renderedAt: 0, dirty: false, pillAt: 0, openThreads: new Set(),
-    market: { view: 'sell', q: '', cat: '', sort: 'new', type: 'all', formOpen: false, shopEdit: null }, marketPending: 0,
+    market: { view: 'sell', q: '', cat: '', sort: 'new', type: 'all', formOpen: false, shopEdit: null, shopView: null }, marketPending: 0,
     practice: null
   };
   let renderSeq = 0;
@@ -185,7 +185,7 @@
   // githubToken: Supabase-Auth access token after a GitHub login; only link_github and github_login need it
   async function rpc(fn, params, githubToken) {
     // practice mode: the Börse runs in the browser with practice players, nothing reaches the database
-    if (state.practice && fn.startsWith('market_')) {
+    if (state.practice && (fn.startsWith('market_') || fn.startsWith('shop_'))) {
       await new Promise((resolve) => setTimeout(resolve, 120));
       return state.practice.call(fn, params);
     }
@@ -1108,19 +1108,17 @@
 
   async function renderMarket() {
     const m = state.market;
-    // the practice Börse has no shops
-    if (state.practice && m.view === 'shops') m.view = 'sell';
     const [list, mine] = await Promise.all([
       m.view === 'deals' || m.view === 'shops' ? [] : rpc('market_list', { p_token: state.token, p_kind: m.view }),
       rpc('market_mine', { p_token: state.token })
     ]);
     setMarketPending(mine.pending);
 
-    const tabs = [['sell', 'Zu verkaufen'], ...(state.practice ? [] : [['shops', 'Shops']]), ['buy', 'Gesucht'], ['deals', 'Meine Deals']];
+    const tabs = [['sell', 'Zu verkaufen'], ['shops', 'Shops'], ['buy', 'Gesucht'], ['deals', 'Meine Deals']];
     const tabBar = h('div', { class: 'filters', role: 'tablist' }, tabs.map(([key, label]) =>
       h('button', {
         class: m.view === key ? 'on' : null, role: 'tab', 'aria-selected': m.view === key ? 'true' : 'false',
-        onclick: () => { m.view = key; m.formOpen = false; m.shopEdit = null; refresh(); }
+        onclick: () => { m.view = key; m.formOpen = false; m.shopEdit = null; m.shopView = null; refresh(); }
       }, label, key === 'deals' && mine.pending ? h('span', { class: 'nav-count' }, mine.pending) : null)));
 
     const lead = 'Kaufen, verkaufen und bestellen. Bezahlt wird in Diamanten, übergeben im Spiel.';
@@ -1541,6 +1539,20 @@
     const mine = list.filter((shop) => shop.mine);
     const editing = m.shopEdit === 'new' ? null : list.find((shop) => shop.id === m.shopEdit && shop.mine);
     if (m.shopEdit !== 'new' && !editing) m.shopEdit = null;
+    // the owner's overview of one shop, like /handel in the game
+    let overview = null;
+    if (m.shopView && !m.shopEdit) {
+      try {
+        overview = shopOverview(await rpc('shop_overview', { p_token: state.token, p_shop_id: m.shopView }));
+      } catch (error) {
+        if (!missingFunction(error)) {
+          m.shopView = null;
+          throw error;
+        }
+        overview = h('div', { class: 'notice caution' }, h('i'), h('span', {}, h('b', {}, 'Die Übersicht wird gerade eingerichtet. '),
+          'Schau in ein paar Minuten nochmal vorbei.'));
+      }
+    }
     const open = mine.length < SHOP_MAX ? h('button', {
       class: 'btn diamond', onclick: () => { m.shopEdit = 'new'; refresh(); }
     }, icon('plus'), 'Shop eröffnen') : null;
@@ -1564,7 +1576,7 @@
       pageHead('Item-Börse', 'Börse', lead, open),
       practiceBanner,
       tabsRow,
-      m.shopEdit ? shopEditor(editing) : null,
+      m.shopEdit ? shopEditor(editing) : overview,
       h('div', { class: 'market-tools one' }, search),
       count,
       board);
@@ -1615,7 +1627,8 @@
         h('span', { class: 'shop-buyline' }, stockNote, shopPrice(p), action));
     };
     const own = shop.mine ? h('div', { class: 'shop-own' },
-      h('button', { class: 'shop-btn', onclick: () => { state.market.shopEdit = shop.id; refresh(); window.scrollTo(0, 0); } }, 'Bearbeiten'),
+      h('button', { class: 'shop-btn', onclick: () => { state.market.shopView = shop.id; state.market.shopEdit = null; refresh(); window.scrollTo(0, 0); } }, 'Übersicht'),
+      h('button', { class: 'shop-btn', onclick: () => { state.market.shopEdit = shop.id; state.market.shopView = null; refresh(); window.scrollTo(0, 0); } }, 'Bearbeiten'),
       h('button', {
         class: 'shop-btn',
         onclick: (event) => act(event.currentTarget, () => rpc('shop_set_status', { p_token: state.token, p_id: shop.id, p_status: paused ? 'open' : 'paused' }),
@@ -1642,6 +1655,97 @@
           shop.sold ? h('span', { class: 'shop-note' }, `${shop.sold}× verkauft`) : null,
           remove),
         own));
+  }
+
+  // the owner's overview of a shop: what /handel shows in the game (stock, till, chests, purchases that wait),
+  // plus who bought how much. info comes from the server (null until it has reported), the rest from the database.
+  function shopOverview(o) {
+    const m = state.market;
+    const info = o.info || null;
+    const close = h('button', { class: 'btn small ghost', type: 'button', onclick: () => { m.shopView = null; refresh(); } }, 'Schließen');
+    const section = (title, ...body) => h('section', { class: 'ov-box' }, h('p', { class: 'eyebrow section-label' }, title), ...body);
+    const row = (pic, main, side, sub) => h('div', { class: 'ov-row' },
+      pic ? h('span', { class: 'shop-row-icon' }, pic) : null,
+      h('div', { class: 'my-row-main' }, h('b', {}, main), sub ? h('span', { class: 'faint small' }, sub) : null),
+      side != null ? h('span', { class: 'ov-side' }, side) : null);
+    const empty = (text) => h('p', { class: 'faint small' }, text);
+    const many = (n) => (n >= 64 ? stackText(n) : null);
+    const full = info && info.limit && info.stacks >= info.limit;
+
+    let stock;
+    if (info) {
+      const kinds = info.kinds || [];
+      stock = section('Lager',
+        kinds.length ? h('div', {}, kinds.map((k) => row(itemIcon(k.item), itemName({ id: k.item }), number(k.amount), many(k.amount))))
+          : empty('Leer.'),
+        h('p', { class: 'faint small' + (full ? ' warn-text' : '') }, info.limit
+          ? `${number(info.stacks)} von ${number(info.limit)} Stacks belegt${full ? ' – voll, der Rest bleibt in den Kisten.' : ''}`
+          : `${number(info.stacks)} Stacks belegt, Platz ohne Grenze`));
+    } else if (o.stock && Object.keys(o.stock).length) {
+      stock = section('Lager', h('div', {}, Object.entries(o.stock).map(([id, n]) => row(itemIcon(id), itemName({ id }), number(n), many(n)))));
+    } else {
+      stock = section('Lager', empty('Noch nichts drin. Leg Ware im Spiel hinein: /handel → dein Shop.'));
+    }
+
+    const tillList = info ? info.till || [] : null;
+    const till = section('Kasse',
+      tillList == null ? empty('Kommt, sobald der Server den Shop gemeldet hat.')
+        : tillList.length ? h('div', {}, tillList.map((t) => row(itemIcon(t.item), itemName({ id: t.item }), number(t.amount))),
+          h('p', { class: 'faint small' }, 'Abholen im Spiel: /handel → dein Shop → Kasse.'))
+          : empty('Leer. Hier landet die Bezahlung für jeden Verkauf.'));
+
+    const products = section('Produkte', o.products.length ? h('div', {}, o.products.map((p) => row(p.item ? itemIcon(p.item) : null,
+      amount(p.quantity, p.title), p.in_stock == null ? null : `${number(p.in_stock)} im Lager`,
+      [priceLabel(p.price, p.price_items), p.in_stock == null ? 'Übergabe von Hand' : `${number(Math.floor(p.in_stock / p.quantity))}× kaufbar`,
+        `${number(p.sold)}× verkauft`, p.open ? `${p.open} offen` : null].filter(Boolean).join(' · '))))
+      : empty('Noch keine Produkte.'));
+
+    const chestList = info ? info.chests || [] : [];
+    const chests = section('Verknüpfte Kisten', chestList.length ? h('div', {}, chestList.map((c) => row(itemIcon('chest'),
+      `${c.x} ${c.y} ${c.z}`, c.loaded ? (c.waiting ? `${number(c.waiting)} drin` : 'leer') : 'nicht geladen',
+      !c.loaded ? 'Niemand in der Nähe: sie wird geleert, sobald jemand dort ist.'
+        : c.waiting ? (full ? 'Bleibt drin, das Lager ist voll.' : 'Kommt beim nächsten Abgleich ins Lager.') : 'Alles ist im Lager.')))
+      : empty(info ? 'Keine. Im Spiel: /handel → dein Shop → Trichter, dann die Kiste anklicken.' : 'Kommt, sobald der Server den Shop gemeldet hat.'));
+
+    const orderState = (d) => {
+      const e = d.escrow;
+      if (d.status === 'open') return 'angefragt';
+      if (!e) return 'wartet auf den Server';
+      if (e.paid) return 'bezahlt, wird abgeschlossen';
+      if (e.goods_needed != null && e.goods >= e.goods_needed) return `Ware liegt bereit, ${d.buyer} muss noch bezahlen`;
+      return e.auto ? 'wartet auf Ware: im Lager ist nicht genug' : 'wartet auf Ware von dir (von Hand in die Truhe)';
+    };
+    const orders = section(`Offene Bestellungen (${o.orders.length})`, o.orders.length
+      ? h('div', {}, o.orders.map((d) => row(head(d.uuid, 24), `${d.buyer}: ${amount(d.quantity, d.title)}`, priceLabel(d.price, d.price_items),
+        `${orderState(d)} · ${ago(d.created_at)}`)))
+      : empty('Keine. Jede neue Bestellung wird automatisch aus dem Lager gefüllt.'));
+
+    const buyers = section(`Wer hat gekauft (${o.buyers.length})`, o.buyers.length
+      ? h('div', {}, o.buyers.map((b) => row(head(b.uuid, 24), b.name, `${number(b.purchases)}× gekauft`,
+        [b.items.map((i) => `${number(i.amount)}× ${i.title}`).join(', '), b.diamonds ? `${diamonds(b.diamonds)} bezahlt` : null,
+          `zuletzt ${ago(b.last)}`].filter(Boolean).join(' · '))))
+      : empty('Noch niemand.'));
+
+    const sales = section('Letzte Verkäufe', o.sales.length
+      ? h('div', {}, o.sales.map((s) => row(head(s.uuid, 24), `${s.buyer}: ${amount(s.quantity, s.title)}`, priceLabel(s.price, s.price_items), ago(s.at))))
+      : empty('Noch keine.'));
+
+    const t = o.totals || {};
+    const totals = h('div', { class: 'ov-totals' },
+      h('span', {}, h('b', {}, number(t.purchases || 0)), t.purchases === 1 ? ' Verkauf' : ' Verkäufe'),
+      h('span', {}, h('b', {}, number(t.buyers || 0)), ` Käufer`),
+      h('span', {}, h('b', {}, number(t.items || 0)), ' Items verkauft'),
+      h('span', {}, h('b', {}, number(t.diamonds || 0)), ' Diamanten eingenommen'),
+      info ? h('span', {}, h('b', {}, number(info.waiting_pay || 0)), ' warten auf Bezahlung') : null,
+      info ? h('span', {}, h('b', {}, number(info.waiting_goods || 0)), ' warten auf Ware') : null);
+
+    return h('div', { class: 'card thick market-form shop-overview' },
+      h('div', { class: 'row' }, h('h3', {}, `„${o.name}“ – Übersicht`), h('span', { class: 'spacer' }), close),
+      h('p', { class: 'faint small' }, o.info_at ? `Stand aus dem Spiel: ${ago(o.info_at)} – aktualisiert sich von selbst.`
+        : 'Der Server hat diesen Shop noch nicht gemeldet; Lager und Kasse erscheinen nach dem nächsten Abgleich.'),
+      totals,
+      h('div', { class: 'ov-grid' }, stock, till, products, chests),
+      orders, buyers, sales);
   }
 
   // opening a shop (shop = null) or editing one: name, text, colour, picture and the products
@@ -2598,7 +2702,7 @@
     stopPractice();
     if (!window.PracticeMarket || !state.me) return;
     state.practice = window.PracticeMarket({ uuid: state.me.uuid, name: state.me.name });
-    state.market = { ...state.market, view: 'sell', q: '', cat: '', formOpen: false };
+    state.market = { ...state.market, view: 'sell', q: '', cat: '', formOpen: false, shopEdit: null, shopView: null };
     state.practice.on((event) => {
       if (event.type === 'bot' && BOT_NEWS[event.action]) toast(BOT_NEWS[event.action](event.bot), 'ok');
       if (!tourEvent(event)) refreshWhenIdle();
@@ -2609,7 +2713,7 @@
     if (!state.practice) return;
     state.practice.stop();
     state.practice = null;
-    state.market = { ...state.market, view: 'sell', formOpen: false };
+    state.market = { ...state.market, view: 'sell', formOpen: false, shopEdit: null, shopView: null };
     state.pillAt = 0;
     setMarketPending(0);
     if (state.token) updatePill();
@@ -2631,7 +2735,8 @@
   // ---------------------------------------------------------------- Rundgang
 
   const TOUR_KEY = 'fa3-tour-done';
-  const tour = { index: -1, card: null, offered: false, ctx: {} };
+  // steps: the running tour (TOUR_STEPS or SHOP_TOUR_STEPS); forced: no closing, no skipping, back to its page
+  const tour = { index: -1, card: null, offered: false, ctx: {}, steps: [], forced: false, key: TOUR_KEY, label: 'Rundgang' };
   const practiceDeal = (listingId) => (state.practice && listingId ? state.practice.dealFor(listingId) : null);
   // a practice player has answered once the deal no longer waits on him
   const answered = (listingId) => {
@@ -2653,8 +2758,8 @@
       text: 'Hier kaufst, verkaufst und bestellst du Items. Bezahlt wird in Diamanten, übergeben im Spiel. Gleich übst du das mit zwei Übungs-Spielern.' },
     inBoerse({ market: 'sell', target: '.practice-banner', title: 'Übungsmodus',
       text: 'Steve und Alex sind nicht echt. Sie antworten von selbst, und nichts von dem, was du jetzt machst, sehen andere Spieler.' }),
-    inBoerse({ market: 'sell', target: '.market-tabs', title: 'Drei Bereiche',
-      text: '„Zu verkaufen“ zeigt, was andere anbieten. „Gesucht“ sind Aufträge: Dinge, die jemand sucht. Unter „Meine Deals“ steht alles, woran du gerade handelst.' }),
+    inBoerse({ market: 'sell', target: '.market-tabs', title: 'Vier Bereiche',
+      text: '„Zu verkaufen“ zeigt, was andere anbieten. „Shops“ sind Läden mit festen Preisen. „Gesucht“ sind Aufträge: Dinge, die jemand sucht. Unter „Meine Deals“ steht alles, woran du gerade handelst.' }),
     inBoerse({ market: 'sell', target: '[data-listing="9001"]', title: 'Kaufen zum Festpreis',
       text: 'Türkis ist der Preis in Diamanten. „Festpreis“ heißt: Wer zuerst kauft, hat den Deal sofort.',
       task: 'Kauf Steves Elytra: Klick auf „Kaufen“ und bestätige.',
@@ -2723,24 +2828,73 @@
       text: 'Das war alles. Im Spiel öffnet /web diese Seite, und /weblogin gibt dir einen Login-Code. Viel Spaß auf Fake Attack 3!' }
   ];
 
-  function tourSeen() {
-    try { return localStorage.getItem(TOUR_KEY) === '1'; } catch { return false; }
+  // the shop tutorial: everyone goes through it once, in the practice Börse, and cannot skip it
+  const inShops = (step) => ({ page: 'boerse', practice: true, market: 'shops', ...step });
+  const SHOP_TOUR_STEPS = [
+    inShops({ target: '.practice-banner', title: 'Neu: Shops',
+      text: 'Die Börse hat jetzt Shops: Karteikarten mit festen Preisen, bei denen man immer wieder kaufen kann. Wir zeigen dir das kurz im Übungsmodus. Steve und Alex sind nicht echt, und nichts davon sehen andere Spieler.' }),
+    inShops({ target: '[data-shop="9101"]', title: 'Ein Shop',
+      text: 'Jede Zeile ist ein Produkt mit festem Preis. „noch 10×“ heißt: So oft liegt es noch im Lager des Shops im Spiel. Ist nichts mehr da, steht dort „ausverkauft“.' }),
+    inShops({ target: '[data-listing="9111"]', title: 'Im Shop kaufen',
+      text: 'Kaufen geht ohne Verhandeln: Klick, bestätigen, fertig.',
+      task: 'Kauf bei Steve 64 Raketen: Klick auf „Kaufen“ und bestätige.',
+      done: (e) => e.type === 'market_buy' && e.listingId === 9111 }),
+    inBoerse({ market: 'deals', target: '[data-deal-listing="9111"]', title: 'Die Ware kommt aus dem Lager',
+      text: 'Steve muss dafür nicht online sein: Der Server legt die Raketen aus seinem Lager selbst in die Handelstruhe. Du gibst im Spiel /handel ein, legst die Diamanten dazu und nimmst dir die Raketen.' }),
+    inShops({ target: '.page-head .btn.diamond', title: 'Dein eigener Shop',
+      text: 'Jeder kann bis zu 3 Shops eröffnen, mit je 12 Produkten.',
+      task: 'Klick auf „Shop eröffnen“, gib deinem Shop einen Namen und klick unten nochmal auf „Shop eröffnen“.',
+      done: (e) => e.type === 'shop_save' && e.created, remember: 'shop', rememberKey: 'shopId' }),
+    inShops({ target: '.shop-editor', title: 'Produkte eintragen',
+      text: 'Wähl ein Item aus der Liste, zum Beispiel „Feuerwerksrakete (Flugdauer 3)“, wie viel man pro Kauf bekommt und den Preis.',
+      task: 'Trag ein Produkt ein und klick auf „Ins Regal“.',
+      done: (e) => e.type === 'shop_add_product' && e.shopId === tour.ctx.shop }),
+    inShops({ target: () => `[data-shop="${tour.ctx.shop}"]`, title: 'Das Lager im Spiel', enter: () => { state.market.shopEdit = null; },
+      text: 'Im Spiel öffnest du mit /handel dein Shop-Fenster. Dort legst du die Ware ins Lager, und jede Bestellung füllt der Server von selbst. '
+        + 'Mit dem Trichter verknüpfst du eine Kiste, zum Beispiel an deiner Farm: Der Shop zieht dann alles, was er verkauft, von selbst daraus. '
+        + 'Für die Übung ist dein Lager schon gefüllt.' }),
+    inShops({ target: () => `[data-shop="${tour.ctx.shop}"]`, title: 'Alex kauft …',
+      text: 'Alex hat deinen Shop gerade entdeckt …',
+      wait: true, done: (e) => e.type === 'bot' && e.action === 'paid' && e.shopId === tour.ctx.shop,
+      skipIf: () => !!state.practice && state.practice.shopSold(tour.ctx.shop) }),
+    inShops({ target: () => `[data-shop="${tour.ctx.shop}"] .shop-own .shop-btn`, title: 'Verkauft!',
+      text: 'Alex hat gekauft und bezahlt. Die Ware kam aus deinem Lager, die Diamanten liegen jetzt in der Kasse deines Shops.',
+      task: 'Klick bei deinem Shop auf „Übersicht“.',
+      done: (e) => e.type === 'shop_overview' && e.shopId === tour.ctx.shop }),
+    inShops({ target: '.shop-overview', title: 'Alles im Blick',
+      text: 'Hier siehst du dasselbe wie im Spiel unter /handel: was im Lager liegt, was in der Kasse ist, deine verknüpften Kisten, offene Bestellungen, und wer wie viel gekauft hat.' }),
+    { page: 'boerse', practice: false, market: 'shops', target: '.market-tabs', title: 'Geschafft!',
+      text: 'Das war die Übung, jetzt siehst du wieder die echten Shops. Was du hier einstellst, sehen alle Spieler. Viel Erfolg mit deinem eigenen Shop!' }
+  ];
+  const shopTourKey = () => `fa3-shop-tour-done:${state.me ? state.me.uuid : ''}`;
+
+  function tourSeen(key = TOUR_KEY) {
+    try { return localStorage.getItem(key) === '1'; } catch { return false; }
   }
 
-  function markTourSeen() {
-    try { localStorage.setItem(TOUR_KEY, '1'); } catch { /* then the offer simply comes back next time */ }
+  function markTourSeen(key = TOUR_KEY) {
+    try { localStorage.setItem(key, '1'); } catch { /* then the offer simply comes back next time */ }
   }
 
   async function startTour() {
     if (!state.me || state.me.banned) return;
-    tour.ctx = {};
-    tour.index = 0;
+    Object.assign(tour, { steps: TOUR_STEPS, forced: false, key: TOUR_KEY, label: 'Rundgang', ctx: {}, index: 0 });
+    await showTourStep();
+  }
+
+  async function startShopTour() {
+    if (!state.me || state.me.banned || tour.index >= 0) return;
+    closeCoach();
+    // the general tour is not offered on top of it in this visit
+    tour.offered = true;
+    Object.assign(tour, { steps: SHOP_TOUR_STEPS, forced: true, key: shopTourKey(), label: 'Shop-Tutorial', ctx: {}, index: 0 });
     await showTourStep();
   }
 
   function endTour() {
     tour.index = -1;
-    markTourSeen();
+    markTourSeen(tour.key);
+    tour.forced = false;
     closeCoach();
     clearTourTarget();
     if (state.practice) {
@@ -2755,22 +2909,23 @@
   }
 
   async function showTourStep() {
-    while (tour.index < TOUR_STEPS.length && TOUR_STEPS[tour.index].skipIf && TOUR_STEPS[tour.index].skipIf()) {
+    while (tour.index < tour.steps.length && tour.steps[tour.index].skipIf && tour.steps[tour.index].skipIf()) {
       tour.index++;
     }
     if (tour.index < 0) return;
-    if (tour.index >= TOUR_STEPS.length) {
+    if (tour.index >= tour.steps.length) {
       endTour();
       return;
     }
     const index = tour.index;
-    const step = TOUR_STEPS[index];
+    const step = tour.steps[index];
     if (step.practice && !state.practice) startPractice();
     if (step.practice === false && state.practice) stopPractice();
     if (step.market) {
       state.market.view = step.market;
       state.market.formOpen = false;
     }
+    if (step.enter) step.enter();
     if (currentPage() !== step.page) history.pushState(null, '', '#/' + step.page);
     renderCoach(step);
     await route();
@@ -2803,9 +2958,9 @@
   // practice events finish task and wait steps; true when the tour re-renders the page itself
   function tourEvent(event) {
     if (tour.index < 0) return false;
-    const step = TOUR_STEPS[tour.index];
+    const step = tour.steps[tour.index];
     if (!step.done || !step.done(event)) return false;
-    if (step.remember) tour.ctx[step.remember] = event.listingId;
+    if (step.remember) tour.ctx[step.remember] = event[step.rememberKey || 'listingId'];
     tour.index++;
     setTimeout(showTourStep, step.wait ? 400 : 800);
     return true;
@@ -2814,7 +2969,17 @@
   // after every render: mark the current target again, or offer the tour once per visit to everyone who has not seen it
   function tourAfterRender() {
     if (tour.index >= 0) {
-      markTourTarget(TOUR_STEPS[tour.index]);
+      const step = tour.steps[tour.index];
+      // a tour you cannot skip brings you back when you click somewhere else
+      if (tour.forced && step && currentPage() !== step.page) {
+        setTimeout(() => goToStep(tour.index), 0);
+        return;
+      }
+      markTourTarget(step);
+      return;
+    }
+    if (state.me && !state.me.banned && !tourSeen(shopTourKey())) {
+      setTimeout(startShopTour, 500);
       return;
     }
     if (!tour.offered && state.me && !state.me.banned && !tourSeen()) {
@@ -2848,20 +3013,21 @@
   }
 
   function renderCoach(step) {
-    const total = TOUR_STEPS.length;
+    const total = tour.steps.length;
     const last = tour.index === total - 1;
-    const prev = TOUR_STEPS[tour.index - 1];
+    const prev = tour.steps[tour.index - 1];
     // back only to plain explanations in the same mode; practice actions cannot be undone
     const canBack = prev && !prev.done && !!prev.practice === !!step.practice;
+    // in a tour you cannot skip, a task has to be done and waiting has no button
     const next = last
       ? h('button', { class: 'btn primary', onclick: endTour }, 'Fertig')
       : step.done
-        ? h('button', { class: 'btn small ghost', onclick: () => goToStep(tour.index + 1) }, 'Überspringen')
+        ? tour.forced ? null : h('button', { class: 'btn small ghost', onclick: () => goToStep(tour.index + 1) }, 'Überspringen')
         : h('button', { class: 'btn primary', onclick: () => goToStep(tour.index + 1) }, 'Weiter');
     coach(
       h('div', { class: 'coach-top' },
-        h('span', { class: 'eyebrow' }, `Rundgang · ${tour.index + 1} von ${total}`),
-        h('button', { class: 'coach-close', title: 'Rundgang beenden', 'aria-label': 'Rundgang beenden', onclick: endTour }, icon('close'))),
+        h('span', { class: 'eyebrow' }, `${tour.label} · ${tour.index + 1} von ${total}`),
+        tour.forced ? null : h('button', { class: 'coach-close', title: 'Rundgang beenden', 'aria-label': 'Rundgang beenden', onclick: endTour }, icon('close'))),
       h('div', { class: 'coach-progress' }, h('i', { style: `width:${Math.round(((tour.index + 1) / total) * 100)}%` })),
       h('h3', {}, step.title),
       h('p', { class: 'coach-text' }, step.text),

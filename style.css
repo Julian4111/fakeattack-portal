@@ -871,3 +871,17 @@ input.mono { font: 14px var(--mono); font-stretch: 85%; }
   *, *::before, *::after { transition: none !important; }
   .coach, .tour-target, .coach-wait i { animation: none; }
 }
+
+/* Shop-Uebersicht fuer den Besitzer: wie /handel im Spiel */
+.shop-overview .row h3 { margin: 0; }
+.shop-overview .section-label { margin: 20px 0 4px; }
+.ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 0 28px; }
+.ov-box { min-width: 0; }
+.ov-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.ov-row + .ov-row { border-top: 1px solid var(--line); }
+.ov-row .my-row-main { min-width: 0; }
+.ov-row .shop-row-icon { flex: none; }
+.ov-row .shop-row-icon img { width: 24px; height: 24px; border-radius: 4px; }
+.ov-side { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; color: var(--text-2); }
+.ov-totals { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 0; color: var(--text-2); }
+.ov-totals b { color: var(--text); font-size: 1.1em; font-variant-numeric: tabular-nums; }

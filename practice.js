@@ -7,7 +7,8 @@ window.PracticeMarket = function PracticeMarket(me) {
   const ALEX = { uuid: 'MHF_Alex', name: 'Alex (Übung)' };
   const BOTS = [STEVE, ALEX];
   // fixed ids, the tour points at these entries
-  const IDS = { elytra: 9001, obsidian: 9002, apples: 9003, sharpness: 9004, pearls: 9011, netherite: 9012 };
+  const IDS = { elytra: 9001, obsidian: 9002, apples: 9003, sharpness: 9004, pearls: 9011, netherite: 9012,
+    steveShop: 9101, rockets: 9111, totems: 9112 };
 
   const now = () => new Date().toISOString();
   const minsAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
@@ -25,7 +26,15 @@ window.PracticeMarket = function PracticeMarket(me) {
     listing(IDS.apples, 'sell', STEVE, 'Goldene Äpfel', 'essen', 16, 10, 'fixed', 0, '', 90),
     listing(IDS.sharpness, 'sell', ALEX, 'Schärfe V', 'verzauberung', 1, null, 'vb', 0, 'Buch. Macht mir ein Angebot.', 300),
     listing(IDS.pearls, 'buy', STEVE, 'Enderperle', 'spezial', 16, 6, 'vb', 2, 'Für mein Endportal.', 18),
-    listing(IDS.netherite, 'buy', ALEX, 'Netherite-Barren', 'erze', 2, 30, 'vb', 3, '', 60)
+    listing(IDS.netherite, 'buy', ALEX, 'Netherite-Barren', 'erze', 2, 30, 'vb', 3, '', 60),
+    // products of Steve's shop: fixed-price entries with shop_id that stay open after a purchase
+    { ...listing(IDS.rockets, 'sell', STEVE, 'Feuerwerksrakete (Flugdauer 3)', 'spezial', 64, 4, 'fixed', 0, '', 30), item: 'firework_rocket_3', shop_id: IDS.steveShop },
+    { ...listing(IDS.totems, 'sell', STEVE, 'Totem der Unsterblichkeit', 'spezial', 1, 12, 'fixed', 0, '', 29), item: 'totem_of_undying', shop_id: IDS.steveShop }
+  ];
+  // shops like portal.market_shops; stock is what the server counted in the game, till what buyers paid
+  const shops = [
+    { id: IDS.steveShop, uuid: STEVE.uuid, owner: STEVE.name, name: 'Steves Laden', slogan: 'Raketen mit Flugdauer 3 und Totems, immer auf Lager.',
+      color: 'rot', icon: 'firework_rocket', status: 'open', created_at: minsAgo(30), stock: { firework_rocket_3: 640, totem_of_undying: 3 }, till: 0 }
   ];
   const deals = [];
   const messages = [];
@@ -128,6 +137,34 @@ window.PracticeMarket = function PracticeMarket(me) {
     }, 3200);
   }
 
+  const shopOf = (l) => (l && l.shop_id ? shops.find((s) => s.id === l.shop_id) || null : null);
+  const myShop = (id) => {
+    const s = shops.find((x) => x.id === id && x.status !== 'closed');
+    if (!s || s.uuid !== me.uuid) fail('Shop nicht gefunden.');
+    return s;
+  };
+
+  // Alex finds a product in the player's shop, buys it, the server fills it from the stock and Alex pays
+  function botBuysInShop(l) {
+    later(() => {
+      const s = shopOf(l);
+      if (!s || s.status !== 'open' || l.status !== 'open') return;
+      const d = { id: nextId++, listing_id: l.id, uuid: ALEX.uuid, name: ALEX.name, status: 'agreed', price: l.price, last_by: ALEX.uuid,
+        created_at: now(), updated_at: now() };
+      deals.push(d);
+      if (l.item && s.stock[l.item] != null) s.stock[l.item] = Math.max(0, s.stock[l.item] - l.quantity);
+      post(d, null, 'system', null, `${ALEX.name} kauft im Shop „${s.name}“. Die Ware kommt aus deinem Lager in die Handelstruhe.`);
+      emit({ type: 'bot', action: 'buy', listingId: l.id, kind: l.kind, bot: ALEX.name, shopId: s.id });
+      later(() => {
+        if (d.status !== 'agreed') return;
+        d.status = 'done'; touch(d);
+        s.till += l.price || 0;
+        post(d, null, 'system', null, `${ALEX.name} hat bezahlt und die Ware abgeholt. Die Bezahlung liegt in der Kasse deines Shops.`);
+        emit({ type: 'bot', action: 'paid', listingId: l.id, kind: l.kind, bot: ALEX.name, shopId: s.id });
+      }, 3500);
+    }, 3500);
+  }
+
   function botSaysThanks(d) {
     const l = listingOf(d);
     const bot = botFor(l.uuid === me.uuid ? d.uuid : l.uuid);
@@ -143,7 +180,7 @@ window.PracticeMarket = function PracticeMarket(me) {
 
   const handlers = {
     market_list: ({ p_kind }) => listings
-      .filter((l) => l.kind === p_kind && (l.status === 'open' || l.status === 'reserved'))
+      .filter((l) => !l.shop_id && l.kind === p_kind && (l.status === 'open' || l.status === 'reserved'))
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .map((l) => ({
         id: l.id, kind: l.kind, title: l.title, category: l.category, quantity: l.quantity, price: l.price,
@@ -190,6 +227,20 @@ window.PracticeMarket = function PracticeMarket(me) {
       const l = listings.find((x) => x.id === p_listing_id);
       if (!l || l.kind !== 'sell' || l.price_type !== 'fixed') fail('Angebot nicht gefunden.');
       if (l.uuid === me.uuid) fail('Das ist dein eigenes Angebot.');
+      const shop = shopOf(l);
+      if (shop) {
+        // a shop product stays open; the stock in the game decides whether there is still some
+        if (l.status !== 'open' || shop.status !== 'open') fail('Der Shop hat gerade geschlossen.');
+        if (l.item && shop.stock[l.item] != null && shop.stock[l.item] < l.quantity) fail('Ausverkauft: Im Lager ist gerade nichts mehr davon.');
+        if (deals.some((d) => d.listing_id === l.id && d.uuid === me.uuid && active(d))) fail('Du hast das schon gekauft und es ist noch nicht übergeben. Schau unter Meine Deals.');
+        const d = { id: nextId++, listing_id: l.id, uuid: me.uuid, name: me.name, status: 'agreed', price: l.price, last_by: me.uuid, created_at: now(), updated_at: now() };
+        deals.push(d);
+        if (l.item && shop.stock[l.item] != null) shop.stock[l.item] -= l.quantity;
+        post(d, null, 'system', null, `${me.name} kauft im Shop „${shop.name}“. Die Ware kommt aus dem Lager in die Handelstruhe: im Spiel /handel, Diamanten dazulegen, fertig.`);
+        report('market_buy', l, { dealId: d.id, shopId: shop.id });
+        botSaysThanks(d);
+        return d.id;
+      }
       if (l.status !== 'open') fail('Zu spät: Das Angebot ist schon reserviert oder verkauft.');
       const d = { id: nextId++, listing_id: l.id, uuid: me.uuid, name: me.name, status: 'agreed', price: l.price, last_by: me.uuid, created_at: now(), updated_at: now() };
       deals.push(d);
@@ -291,19 +342,129 @@ window.PracticeMarket = function PracticeMarket(me) {
             id: d.id, status: d.status, price: d.price, created_at: d.created_at, updated_at: d.updated_at,
             i_own_listing: own, last_by_me: d.last_by === me.uuid,
             partner: own ? d.name : l.name, partner_uuid: own ? d.uuid : l.uuid,
-            listing: { id: l.id, kind: l.kind, title: l.title, category: l.category, quantity: l.quantity, price: l.price, price_type: l.price_type, status: l.status },
+            listing: { id: l.id, kind: l.kind, title: l.title, category: l.category, quantity: l.quantity, price: l.price, price_type: l.price_type, status: l.status,
+              shop: shopOf(l) ? shopOf(l).name : null },
             messages: messages.filter((m) => m.deal_id === d.id)
               .map((m) => ({ kind: m.kind, price: m.price, body: m.body, author: m.name, mine: m.uuid === me.uuid, created_at: m.created_at }))
           };
         }),
-      listings: listings.filter((l) => l.uuid === me.uuid)
+      listings: listings.filter((l) => l.uuid === me.uuid && !l.shop_id)
         .sort((a, b) => ((b.status === 'open' || b.status === 'reserved') - (a.status === 'open' || a.status === 'reserved')) || b.created_at.localeCompare(a.created_at))
         .map((l) => ({
           id: l.id, kind: l.kind, title: l.title, category: l.category, quantity: l.quantity, price: l.price, price_type: l.price_type,
           urgency: l.urgency, status: l.status, created_at: l.created_at, description: l.description,
           deal_count: deals.filter((d) => d.listing_id === l.id && active(d)).length
         }))
-    })
+    }),
+
+    // ---------------------------------------------------------------- Shops
+
+    shop_list: () => shops.filter((s) => s.status !== 'closed')
+      .sort((a, b) => ((b.status === 'open') - (a.status === 'open')) || b.created_at.localeCompare(a.created_at))
+      .map((s) => ({
+        id: s.id, name: s.name, slogan: s.slogan, color: s.color, icon: s.icon, status: s.status, owner: s.owner, uuid: s.uuid,
+        created_at: s.created_at, mine: s.uuid === me.uuid, can_remove: s.uuid === me.uuid,
+        sold: deals.filter((d) => d.status === 'done' && (listingOf(d) || {}).shop_id === s.id).length,
+        products: listings.filter((l) => l.shop_id === s.id && l.status === 'open').map((l) => ({
+          id: l.id, title: l.title, quantity: l.quantity, price: l.price, price_items: null, item: l.item || null, category: l.category,
+          stock: l.item && s.stock[l.item] != null ? Math.floor(s.stock[l.item] / l.quantity) : null,
+          my_deal: (deals.find((d) => d.listing_id === l.id && d.uuid === me.uuid && active(d)) || {}).id ?? null,
+          deal_count: deals.filter((d) => d.listing_id === l.id && active(d)).length
+        }))
+      })),
+
+    shop_save: ({ p_id, p_name, p_slogan, p_color, p_icon }) => {
+      const name = (p_name || '').trim();
+      if (name.length < 2 || name.length > 40) fail('Der Name des Shops muss 2 bis 40 Zeichen lang sein.');
+      if (shops.some((s) => s.status !== 'closed' && s.name.toLowerCase() === name.toLowerCase() && s.id !== p_id)) fail('Einen Shop mit diesem Namen gibt es schon.');
+      if (p_id) {
+        const s = myShop(p_id);
+        Object.assign(s, { name, slogan: (p_slogan || '').trim(), color: p_color || s.color, icon: p_icon || null });
+        later(() => emit({ type: 'shop_save', shopId: s.id, created: false }), 0);
+        return s.id;
+      }
+      if (shops.filter((s) => s.uuid === me.uuid && s.status !== 'closed').length >= 3) fail('Du hast schon 3 Shops. Schließe erst einen.');
+      const s = { id: nextId++, uuid: me.uuid, owner: me.name, name, slogan: (p_slogan || '').trim(), color: p_color || 'blau', icon: p_icon || null,
+        status: 'open', created_at: now(), stock: {}, till: 0 };
+      shops.push(s);
+      later(() => emit({ type: 'shop_save', shopId: s.id, created: true }), 0);
+      return s.id;
+    },
+
+    shop_set_status: ({ p_id, p_status }) => {
+      const s = myShop(p_id);
+      if (!['open', 'paused', 'closed'].includes(p_status)) fail('Unbekannter Status.');
+      s.status = p_status;
+      if (p_status === 'closed') {
+        for (const l of listings.filter((x) => x.shop_id === s.id && x.status === 'open')) {
+          l.status = 'closed';
+          for (const d of deals.filter((x) => x.listing_id === l.id && active(x))) { d.status = 'cancelled'; touch(d); }
+        }
+      }
+      later(() => emit({ type: 'shop_set_status', shopId: s.id, status: p_status }), 0);
+      return null;
+    },
+
+    shop_add_product: ({ p_shop_id, p_title, p_quantity, p_price: given, p_price_items, p_item, p_category }) => {
+      const s = myShop(p_shop_id);
+      const title = (p_title || '').trim();
+      // a price only in items counts as 0 diamonds, like in the database
+      const p_price = given ?? ((p_price_items || []).length ? 0 : null);
+      if (title.length < 2 || title.length > 60) fail('Der Name des Items muss 2 bis 60 Zeichen lang sein.');
+      if (!(p_quantity >= 1 && p_quantity <= 100000)) fail('Die Menge muss zwischen 1 und 100000 liegen.');
+      if (p_price == null || p_price < 0 || p_price > 100000) fail('Bitte einen Preis angeben: Diamanten, Items oder beides.');
+      if (listings.filter((l) => l.shop_id === s.id && l.status === 'open').length >= 12) fail('In einen Shop passen höchstens 12 Produkte.');
+      const l = { ...listing(nextId++, 'sell', me, title, p_category || 'sonstiges', p_quantity, p_price, 'fixed', 0, '', 0),
+        item: p_item || null, shop_id: s.id };
+      listings.push(l);
+      // for the practice, the stock in the game is already filled: five purchases' worth
+      if (l.item) s.stock[l.item] = (s.stock[l.item] || 0) + p_quantity * 5;
+      later(() => emit({ type: 'shop_add_product', listingId: l.id, shopId: s.id }), 0);
+      botBuysInShop(l);
+      return l.id;
+    },
+
+    // like the real overview: what /handel shows in the game plus who bought how much
+    shop_overview: ({ p_shop_id }) => {
+      const s = myShop(p_shop_id);
+      const ofShop = deals.filter((d) => (listingOf(d) || {}).shop_id === s.id);
+      const done = ofShop.filter((d) => d.status === 'done');
+      const deal = (d) => {
+        const l = listingOf(d);
+        return { id: d.id, buyer: d.name, uuid: d.uuid, title: l.title, item: l.item || null, quantity: l.quantity, price: d.price ?? l.price, price_items: null };
+      };
+      const byBuyer = new Map();
+      for (const d of done) {
+        const l = listingOf(d);
+        const b = byBuyer.get(d.uuid) || { uuid: d.uuid, name: d.name, purchases: 0, diamonds: 0, last: d.updated_at, items: new Map() };
+        byBuyer.set(d.uuid, b);
+        b.purchases++;
+        b.diamonds += d.price || 0;
+        if (d.updated_at > b.last) b.last = d.updated_at;
+        const entry = b.items.get(l.id) || { title: l.title, item: l.item || null, amount: 0 };
+        entry.amount += l.quantity;
+        b.items.set(l.id, entry);
+      }
+      const kinds = Object.entries(s.stock).filter(([, n]) => n > 0).map(([item, amount]) => ({ item, amount }));
+      const waiting = ofShop.filter((d) => d.status === 'agreed').length;
+      later(() => emit({ type: 'shop_overview', shopId: s.id }), 0);
+      return {
+        id: s.id, name: s.name, status: s.status, owner: s.owner, uuid: s.uuid, stock: { ...s.stock }, stock_at: now(), info_at: now(),
+        info: { stacks: kinds.reduce((n, k) => n + Math.ceil(k.amount / 64), 0), kinds, till: s.till ? [{ item: 'diamond', amount: s.till }] : [],
+          chests: [], waiting_pay: waiting, waiting_goods: 0 },
+        products: listings.filter((l) => l.shop_id === s.id && l.status === 'open').map((l) => ({
+          id: l.id, title: l.title, item: l.item || null, quantity: l.quantity, price: l.price, price_items: null,
+          in_stock: l.item ? s.stock[l.item] || 0 : null, sold: done.filter((d) => d.listing_id === l.id).length,
+          open: ofShop.filter((d) => d.listing_id === l.id && active(d)).length
+        })),
+        orders: ofShop.filter(active).map((d) => ({ ...deal(d), status: d.status, created_at: d.created_at,
+          escrow: { inside: true, auto: true, goods: listingOf(d).quantity, goods_needed: listingOf(d).quantity, paid: false, from_shop: true } })),
+        buyers: [...byBuyer.values()].map((b) => ({ ...b, items: [...b.items.values()] })),
+        sales: [...done].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).map((d) => ({ ...deal(d), at: d.updated_at })),
+        totals: { purchases: done.length, diamonds: done.reduce((n, d) => n + (d.price || 0), 0),
+          items: done.reduce((n, d) => n + listingOf(d).quantity, 0), buyers: byBuyer.size }
+      };
+    }
   };
 
   return {
@@ -319,6 +480,8 @@ window.PracticeMarket = function PracticeMarket(me) {
         .sort((a, b) => b.id - a.id)[0] || null;
     },
     lastByMe(deal) { return deal.last_by === me.uuid; },
+    // a practice player has bought in this shop and paid (for the shop tutorial)
+    shopSold(shopId) { return deals.some((d) => d.status === 'done' && (listingOf(d) || {}).shop_id === shopId); },
     on(listener) { listeners.add(listener); },
     stop() {
       for (const timer of timers) clearTimeout(timer);
