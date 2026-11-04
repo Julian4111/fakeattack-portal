@@ -848,9 +848,19 @@
     return lines;
   }
 
+  // the picture of a variant is the plain item's: "enchanted_book_sharpness_5", "ominous_bottle_3", "potion_strong_strength" …
+  function variantBase(id) {
+    const text = String(id);
+    if (text.startsWith('enchanted_book_')) return 'enchanted_book';
+    if (/^ominous_bottle_[1-5]$/.test(text)) return 'ominous_bottle';
+    if (/^firework_rocket_[1-3]$/.test(text)) return 'firework_rocket';
+    if (text.startsWith('goat_horn_')) return 'goat_horn';
+    for (const form of ['lingering_potion', 'splash_potion', 'tipped_arrow', 'potion']) if (text.startsWith(form + '_')) return form;
+    return text;
+  }
+
   function itemIcon(id) {
-    // a book of the market ("enchanted_book_sharpness_5") looks like every enchanted book
-    const file = String(id).startsWith('enchanted_book_') ? 'enchanted_book' : id;
+    const file = variantBase(id);
     const img = h('img', { alt: '', loading: 'lazy', draggable: 'false' });
     let step = 0;
     img.onerror = () => {
@@ -1640,7 +1650,9 @@
     const slogan = h('input', { id: 'shop-slogan', maxlength: '160', value: shop ? shop.slogan : '', placeholder: 'z. B. Flugdauer 3, immer auf Lager' });
     const iconInput = h('input', { id: 'shop-icon', list: 'shop-items', autocomplete: 'off', placeholder: 'z. B. Feuerwerksrakete',
       value: shop && shop.icon ? itemName({ id: shop.icon }) : '' });
-    const items = h('datalist', { id: 'shop-items' }, [...ITEM_CATEGORY.values()].map((item) => h('option', { value: item.name })));
+    // only real Minecraft items (with their variant): the stock and the linked chests fill those by themselves
+    const items = h('datalist', { id: 'shop-items' }, [...ITEM_CATEGORY.values()].filter((item) => ITEM_IDS[item.name])
+      .map((item) => h('option', { value: item.name })));
     const swatches = h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': 'Farbe des Reiters' });
     const syncColor = () => {
       for (const b of swatches.children) {
@@ -1689,7 +1701,8 @@
 
     const productRows = shop.products.map((p) => h('div', { class: 'my-row' },
       p.item ? h('span', { class: 'shop-row-icon' }, itemIcon(p.item)) : null,
-      h('div', { class: 'my-row-main' }, h('b', {}, amount(p.quantity, p.title)), h('span', { class: 'faint small' }, priceLabel(p.price, p.price_items))),
+      h('div', { class: 'my-row-main' }, h('b', {}, amount(p.quantity, p.title)), h('span', { class: 'faint small' }, priceLabel(p.price, p.price_items)),
+        p.item ? null : h('span', { class: 'small warn-text' }, 'Kein Item aus der Liste: Lager und Kiste füllen das nicht. Entfernen und neu eintragen.')),
       p.deal_count ? h('span', { class: 'faint small' }, `${p.deal_count} offen`) : null,
       h('button', {
         class: 'btn small ghost warn',
@@ -1700,7 +1713,7 @@
         }
       }, 'Entfernen')));
 
-    const title = h('input', { id: 'shop-product', maxlength: '60', list: 'shop-items', autocomplete: 'off', required: true, placeholder: 'z. B. Feuerwerksrakete' });
+    const title = h('input', { id: 'shop-product', maxlength: '60', list: 'shop-items', autocomplete: 'off', required: true, placeholder: 'z. B. Feuerwerksrakete (Flugdauer 3)' });
     const quantity = h('input', { id: 'shop-qty', type: 'number', min: '1', max: '100000', step: '1', value: '1', required: true, inputmode: 'numeric' });
     const price = priceEditor({ id: 'shop-price' });
     const add = h('button', { class: 'btn emerald', type: 'submit', disabled: shop.products.length >= SHOP_PRODUCTS_MAX }, icon('plus'), 'Ins Regal');
@@ -1714,6 +1727,11 @@
           return;
         }
         const known = ITEM_CATEGORY.get(title.value.trim().toLowerCase());
+        if (!known || !ITEM_IDS[known.name]) {
+          toast(`„${title.value.trim()}“ ist kein Item aus der Liste. Wähl eins aus (z. B. „Feuerwerksrakete (Flugdauer 3)“), `
+            + 'nur dann füllen Lager und verknüpfte Kiste die Bestellungen.', 'error');
+          return;
+        }
         act(add, () => rpc('shop_add_product', {
           p_token: state.token, p_shop_id: shop.id, p_title: title.value, p_quantity: Number(quantity.value),
           p_price: offer.price, p_price_items: offer.items, p_item: known ? ITEM_IDS[known.name] || null : null,

@@ -1782,3 +1782,76 @@ window.ENCHANT_BOOK_IDS = {"Atmung I":"enchanted_book_respiration_1","Atmung II"
   }
 })();
 // ==== END GENERATED ====
+
+// ==== Varianten (handgepflegt, nicht von gen_items.py) ====
+// Items mit Stufen oder Sorten bekommen eigene IDs wie die Bücher; die Handelstruhe und das Shop-Lager im Spiel
+// prüfen dann genau diese Variante (MarketItem.java). Das einfache Item ("Unheilvolle Flasche (jede Stufe)") nimmt alle.
+(function () {
+  const items = window.MARKET_ITEMS;
+  const ids = window.MARKET_ITEM_IDS;
+  const add = (cat, label, id) => {
+    ids[label] = id;
+    if (!items[cat].includes(label)) items[cat].push(label);
+  };
+  const rename = (cat, old, label) => {
+    const id = ids[old];
+    if (!id) return;
+    delete ids[old];
+    ids[label] = id;
+    for (const list of Object.values(items)) {
+      const at = list.indexOf(old);
+      if (at >= 0) list.splice(at, 1);
+    }
+    if (!items[cat].includes(label)) items[cat].push(label);
+  };
+  const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
+
+  rename('traenke', 'Unheilvolle Flasche', 'Unheilvolle Flasche (jede Stufe)');
+  for (let level = 1; level <= 5; level++) add('traenke', `Unheilvolle Flasche ${ROMAN[level]}`, `ominous_bottle_${level}`);
+
+  rename('spezial', 'Feuerwerksrakete', 'Feuerwerksrakete (jede Flugdauer)');
+  for (let power = 1; power <= 3; power++) add('spezial', `Feuerwerksrakete (Flugdauer ${power})`, `firework_rocket_${power}`);
+
+  rename('spezial', 'Bockshorn', 'Bockshorn (jeder Klang)');
+  for (const [key, label] of [['ponder', 'Grübeln'], ['sing', 'Singen'], ['seek', 'Suchen'], ['feel', 'Fühlen'], ['admire', 'Bewundern'],
+    ['call', 'Rufen'], ['yearn', 'Sehnen'], ['dream', 'Träumen']]) add('spezial', `Bockshorn (${label})`, `goat_horn_${key}`);
+
+  // [Trankart, Name, Varianten]: long_ = verlängert, strong_ = Stufe II (wie die Tränke im Spiel)
+  const EFFECTS = [
+    ['night_vision', 'der Nachtsicht', ['long']], ['invisibility', 'der Unsichtbarkeit', ['long']],
+    ['leaping', 'der Sprungkraft', ['long', 'strong']], ['fire_resistance', 'der Feuerresistenz', ['long']],
+    ['swiftness', 'der Schnelligkeit', ['long', 'strong']], ['slowness', 'der Langsamkeit', ['long', 'strong']],
+    ['turtle_master', 'des Schildkrötenmeisters', ['long', 'strong']], ['water_breathing', 'der Unterwasseratmung', ['long']],
+    ['healing', 'der Heilung', ['strong']], ['harming', 'des Schadens', ['strong']], ['poison', 'der Vergiftung', ['long', 'strong']],
+    ['regeneration', 'der Regeneration', ['long', 'strong']], ['strength', 'der Stärke', ['long', 'strong']],
+    ['weakness', 'der Schwäche', ['long']], ['luck', 'des Glücks', []], ['slow_falling', 'des sanften Falls', ['long']],
+    ['wind_charged', 'der Windladung', []], ['weaving', 'des Webens', []], ['oozing', 'des Schleimens', []], ['infested', 'des Befalls', []]
+  ];
+  const FORMS = [['potion', 'Trank', 'traenke'], ['splash_potion', 'Wurftrank', 'traenke'], ['lingering_potion', 'Verweiltrank', 'traenke'],
+    ['tipped_arrow', 'Pfeil', 'waffen']];
+  rename('traenke', 'Trank', 'Trank (jede Sorte)');
+  rename('traenke', 'Wurftrank', 'Wurftrank (jede Sorte)');
+  rename('traenke', 'Verweiltrank', 'Verweiltrank (jede Sorte)');
+  rename('waffen', 'Getränkter Pfeil', 'Getränkter Pfeil (jede Sorte)');
+  for (const [form, noun, cat] of FORMS) {
+    for (const [effect, label, variants] of EFFECTS) {
+      add(cat, `${noun} ${label}`, `${form}_${effect}`);
+      if (variants.includes('strong')) add(cat, `${noun} ${label} II`, `${form}_strong_${effect}`);
+      if (variants.includes('long')) add(cat, `${noun} ${label} (verlängert)`, `${form}_long_${effect}`);
+    }
+  }
+  add('traenke', 'Wasserflasche', 'potion_water');
+  add('traenke', 'Seltsamer Trank', 'potion_awkward');
+
+  // die alten Vorschläge ohne Minecraft-Item zeigen jetzt auf das passende Item
+  Object.assign(ids, {
+    'Heiltrank': 'potion_healing', 'Stärketrank': 'potion_strength', 'Feuerresistenz': 'potion_fire_resistance',
+    'Unsichtbarkeit': 'potion_invisibility', 'Wasseratmung': 'potion_water_breathing', 'Schnelligkeit': 'potion_swiftness',
+    'Nachtsicht': 'potion_night_vision', 'Langsames Fallen': 'potion_slow_falling', 'Regeneration': 'potion_regeneration',
+    'Schildkrötenmeister': 'potion_turtle_master', 'Wurf-Heiltrank': 'splash_potion_healing', 'Fackeln (64)': 'torch',
+    'Pfeile (64)': 'arrow', 'Zauberbuch': 'enchanted_book', 'Schulkerkiste': 'shulker_box'
+  });
+  // "Feuerwerksraketen (64)" klang nach einer Sorte, war aber keine: die Flugdauer muss man wählen
+  const old = items.spezial.indexOf('Feuerwerksraketen (64)');
+  if (old >= 0) items.spezial.splice(old, 1);
+})();

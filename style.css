@@ -607,6 +607,7 @@ input[type="datetime-local"] { color-scheme: dark; }
 .shop-editor .my-listings { padding: 0 4px; margin-bottom: 12px; }
 .shop-editor-row { margin-top: 14px; }
 .shop-row-icon img { width: 24px; height: 24px; image-rendering: pixelated; }
+.warn-text { color: var(--alert); }
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
 .swatch { width: 34px; height: 34px; border-radius: 9px; border: 0; background: var(--tab); cursor: pointer; box-shadow: var(--ring); }
 .swatch.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
