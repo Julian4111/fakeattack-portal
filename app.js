@@ -723,7 +723,9 @@
     { key: 'diamonds', label: 'Diamanterz abgebaut', top: 'Meiste Diamanterze abgebaut', color: '#8A9099', format: counted('Erz', 'Erze') },
     { key: 'totems', label: 'Totems ausgelöst', top: 'Meiste Totems ausgelöst', color: '#8A9099', format: counted('Totem', 'Totems') },
     { key: 'ancient_debris', label: 'Ancient Debris abgebaut', top: 'Meiste Ancient Debris abgebaut', color: '#8A9099', format: counted('Ancient Debris', 'Ancient Debris') },
-    { key: 'advancements', label: 'Fortschritte', top: 'Meiste Fortschritte', color: '#8A9099', format: counted('Fortschritt', 'Fortschritte') }
+    { key: 'advancements', label: 'Fortschritte', top: 'Meiste Fortschritte', color: '#8A9099', format: counted('Fortschritt', 'Fortschritte') },
+    // the current experience level (it drops on death)
+    { key: 'level', label: 'Level', top: 'Höchstes Level', color: '#8A9099', format: (n) => [number(n), 'Level'] }
   ];
 
   const smallValue = (cat, value) => {
