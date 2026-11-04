@@ -883,5 +883,9 @@ input.mono { font: 14px var(--mono); font-stretch: 85%; }
 .ov-row .shop-row-icon { flex: none; }
 .ov-row .shop-row-icon img { width: 24px; height: 24px; border-radius: 4px; }
 .ov-side { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; color: var(--text-2); }
+.ov-switch { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin: 4px 0 6px; border-radius: 12px;
+  background: color-mix(in srgb, var(--ok) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
+.ov-switch.off { background: var(--fill); border-color: var(--line); }
+.ov-switch-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ov-totals { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 0; color: var(--text-2); }
 .ov-totals b { color: var(--text); font-size: 1.1em; font-variant-numeric: tabular-nums; }

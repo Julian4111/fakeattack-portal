@@ -424,6 +424,13 @@ window.PracticeMarket = function PracticeMarket(me) {
       return l.id;
     },
 
+    shop_set_pull: ({ p_shop_id, p_on }) => {
+      const s = myShop(p_shop_id);
+      s.pull = p_on !== false;
+      later(() => emit({ type: 'shop_set_pull', shopId: s.id, on: s.pull }), 0);
+      return null;
+    },
+
     // like the real overview: what /handel shows in the game plus who bought how much
     shop_overview: ({ p_shop_id }) => {
       const s = myShop(p_shop_id);
@@ -449,7 +456,7 @@ window.PracticeMarket = function PracticeMarket(me) {
       const waiting = ofShop.filter((d) => d.status === 'agreed').length;
       later(() => emit({ type: 'shop_overview', shopId: s.id }), 0);
       return {
-        id: s.id, name: s.name, status: s.status, owner: s.owner, uuid: s.uuid, stock: { ...s.stock }, stock_at: now(), info_at: now(),
+        id: s.id, name: s.name, status: s.status, owner: s.owner, uuid: s.uuid, pull: s.pull !== false, stock: { ...s.stock }, stock_at: now(), info_at: now(),
         info: { stacks: kinds.reduce((n, k) => n + Math.ceil(k.amount / 64), 0), kinds, till: s.till ? [{ item: 'diamond', amount: s.till }] : [],
           chests: [], waiting_pay: waiting, waiting_goods: 0 },
         products: listings.filter((l) => l.shop_id === s.id && l.status === 'open').map((l) => ({

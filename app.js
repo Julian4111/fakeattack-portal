@@ -1701,10 +1701,21 @@
       : empty('Noch keine Produkte.'));
 
     const chestList = info ? info.chests || [] : [];
-    const chests = section('Verknüpfte Kisten', chestList.length ? h('div', {}, chestList.map((c) => row(itemIcon('chest'),
+    // the switch for the linked chests; o.pull is missing until the database knows it
+    const paused = o.pull === false;
+    const pullSwitch = o.pull == null ? null : h('div', { class: 'ov-switch' + (paused ? ' off' : '') },
+      h('span', { class: 'ov-switch-text' }, h('b', {}, paused ? 'Aufnahme pausiert' : 'Aufnahme läuft'),
+        h('span', { class: 'faint small' }, paused ? 'Der Shop lässt die Kisten in Ruhe.' : 'Der Shop zieht alles, was er verkauft, aus den Kisten.')),
+      h('button', {
+        class: 'btn small' + (paused ? ' emerald' : ' ghost'), type: 'button',
+        onclick: (event) => act(event.currentTarget, () => rpc('shop_set_pull', { p_token: state.token, p_shop_id: o.id, p_on: paused }),
+          paused ? 'Die Kisten werden wieder ins Lager gezogen.' : 'Pausiert: Die Kisten bleiben, wie sie sind.')
+      }, paused ? 'Einschalten' : 'Pausieren'));
+    const chests = section('Verknüpfte Kisten', pullSwitch, chestList.length ? h('div', {}, chestList.map((c) => row(itemIcon('chest'),
       `${c.x} ${c.y} ${c.z}`, c.loaded ? (c.waiting ? `${number(c.waiting)} drin` : 'leer') : 'nicht geladen',
-      !c.loaded ? 'Niemand in der Nähe: sie wird geleert, sobald jemand dort ist.'
-        : c.waiting ? (full ? 'Bleibt drin, das Lager ist voll.' : 'Kommt beim nächsten Abgleich ins Lager.') : 'Alles ist im Lager.')))
+      paused ? 'Pausiert: bleibt, wie sie ist.'
+        : !c.loaded ? 'Niemand in der Nähe: sie wird geleert, sobald jemand dort ist.'
+          : c.waiting ? (full ? 'Bleibt drin, das Lager ist voll.' : 'Kommt beim nächsten Abgleich ins Lager.') : 'Alles ist im Lager.')))
       : empty(info ? 'Keine. Im Spiel: /handel → dein Shop → Trichter, dann die Kiste anklicken.' : 'Kommt, sobald der Server den Shop gemeldet hat.'));
 
     const orderState = (d) => {
