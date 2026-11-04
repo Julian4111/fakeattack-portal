@@ -1786,7 +1786,7 @@
   async function renderRules() {
     const number = (index) => String(index + 1).padStart(2, '0');
     return h('div', {},
-      pageHead('Server', 'Regeln & Infos', 'Diese Regeln akzeptierst du beim ersten Beitreten im Spiel.'),
+      pageHead('Server', 'Regeln & Infos', 'Diese Regeln akzeptierst du beim Beitreten im Spiel, nach jeder Änderung neu.'),
       h('div', { class: 'grid' },
         h('div', { class: 'card thick' }, h('p', { class: 'eyebrow', style: 'margin-bottom:14px' }, 'Regeln'),
           h('ol', { class: 'rules' }, (CONFIG.rules || []).map((rule, index) => h('li', {}, h('b', { class: 'no' }, number(index)),
@@ -2427,7 +2427,7 @@
     { page: 'abstimmungen', target: '.option', title: 'Abstimmungen',
       text: 'Bei Server-Entscheidungen stimmst du hier ab. Ein Klick auf eine Antwort reicht, und solange die Abstimmung läuft, kannst du sie ändern.' },
     { page: 'regeln', target: '.rules', title: 'Regeln',
-      text: 'Die Regeln des Servers. Du hast sie beim Joinen bestätigt, hier kannst du sie jederzeit nachlesen.' },
+      text: 'Die Regeln des Servers. Du bestätigst sie beim Joinen (nach jeder Änderung neu), hier kannst du sie jederzeit nachlesen.' },
     { page: 'einspruch', target: '.page-head', title: 'Einspruch',
       text: 'Falls du mal gebannt wirst: Im Bann-Bildschirm steht ein Code. Damit meldest du dich hier an und legst Einspruch ein.' },
     { page: 'konto', target: '.github-card', title: 'Dein Konto',

@@ -14,11 +14,13 @@ window.PORTAL_CONFIG = {
   rules: [
     { title: 'Kämpfen und Griefen', text: 'Töten und Griefen sind erlaubt, aber nur mit triftigem Grund. Wer ohne triftigen Grund tötet oder Bauwerke zerstört, muss verlorene Items selbst ersetzen und Zerstörtes selbst wieder aufbauen.' },
     { title: 'Keine Cheats', text: 'Hack-Clients, X-Ray, Bots und Exploits, die den Server abstürzen lassen oder lahmlegen, sind verboten.' },
-    { title: 'Keine Erstattung verlorener Items', text: 'Bei Neustarts, Abschaltungen oder Abstürzen können Items verloren gehen. Der Admin haftet dafür nicht, verlorene Items werden grundsätzlich nicht erstattet.' }
+    { title: 'Keine Erstattung verlorener Items', text: 'Bei Neustarts, Abschaltungen oder Abstürzen können Items verloren gehen. Der Admin haftet dafür nicht, verlorene Items werden grundsätzlich nicht erstattet.' },
+    { title: 'Farmen', text: 'Farmen dürfen nicht zerstört werden, auch nicht mit triftigem Grund. Wer die Farm eines anderen Spielers nutzen möchte, sollte das vorher mit dem Besitzer der Farm absprechen.' },
+    { title: 'Kein Klauen', text: 'Klauen ist generell verboten. Nimm nichts aus Kisten, Farmen oder Bauwerken anderer Spieler, wenn sie es dir nicht erlaubt haben.' }
   ],
 
   info: [
-    'Beim ersten Beitreten zeigt dir Minecraft diese Regeln – nur wer sie akzeptiert, kommt auf den Server.',
+    'Beim ersten Beitreten und nach jeder Regeländerung zeigt dir Minecraft diese Regeln – nur wer sie akzeptiert, kommt auf den Server. Neu seit dem 04.11.: Regel 4 (Farmen) und 5 (Kein Klauen).',
     'Sprachchat: Mod „Simple Voice Chat“ installieren, dann funktioniert er automatisch.',
     'Nether und End können zeitweise gesperrt sein.',
     'Backups laufen alle 30 Minuten. Neustarts um 0, 6, 12 und 18 Uhr, vorher Countdown im Spiel.',
